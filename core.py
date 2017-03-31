@@ -244,10 +244,8 @@ class Agent(object):
 
     def _setup(self):
         """Private setup method that assure that the Agent is registered properly."""
-        msg = SubscribeMessage(sender=self, subscription_topic=self.get_uuid())
-        self.send(msg=msg)
-        msg = SubscribeMessage(sender=self, subscription_topic=self.__class__.__name__)
-        self.send(msg=msg)
+        self.subscribe(self.get_uuid())
+        self.subscribe(self.__class__.__name__)
         self._is_setup = True
 
     def teardown(self):
@@ -260,10 +258,8 @@ class Agent(object):
 
     def _teardown(self):
         """ Private teardown method that assures that the Agent is de-registered properly."""
-        msg = UnSubscribeMessage(sender=self, subscription_topic=self.get_uuid())
-        self.send(msg=msg)
-        msg = UnSubscribeMessage(sender=self, subscription_topic=self.__class__.__name__)
-        self.send(msg=msg)
+        self.unsubscribe(self.get_uuid())
+        self.unsubscribe(self.__class__.__name__)
         self._is_setup = False
 
     def update(self):
@@ -319,6 +315,8 @@ class Agent(object):
     def get_uuid(self):
         """ Returns the UUID of the agent. This is guaranteed to be volatile and unique.
         No two runs of the same simulation will have agents with the same UUID."""
+        if not hasattr(self, "uuid"):
+            raise AttributeError("{} has no attribute self.uuid..! Have you remembered to run super().__init__() on the Agent class?".format(type(self)))
         return self.uuid
 
     def is_setup(self):
@@ -355,6 +353,37 @@ class Agent(object):
         msg = AlarmMessage(sender=self, alarm_time=alarm_time, alarm_message=alarm_message)
         self.send(msg)
 
+    def subscribe(self, topic):
+        """
+        A method to be used by the agent to set and subscribe to a particular topic
+        :param topic: string
+        
+        Examples:
+        
+        To subscribe to messages for the agent itself, use [1]:
+        topic=self.get_uuid())  
+        
+        To subscribe to messages for the agents own class (including class broadcasts), use [1]:
+        topic=self.__class__.__name__ 
+        
+        To subscribe to messages of a particular subject, use:
+        topic=AgentMessage.__class__.__name__
+        
+        [1] This option is loaded automatically at setup time. 
+        
+        """
+        msg = SubscribeMessage(sender=self, subscription_topic=topic)
+        self.send(msg=msg)
+
+    def unsubscribe(self, topic):
+        """ A method to be used by the agent to unset and unsubscribe to a particular topic
+        :param topic: string 
+        
+        Note that all agents automatically unsubscribe at teardown.
+        """
+        msg = UnSubscribeMessage(sender=self, subscription_topic=topic)
+        self.send(msg=msg)
+
     def _set_time(self, time):
         """
         :param time: Simulation time, provided by the clocks "now" function.
@@ -384,9 +413,11 @@ class Clock(Agent):
         assert isinstance(clock_speed, (int, float, type(None))), "clock_speed must be int, float or None. Not: {}".format(type(clock_speed))
         super().__init__()
         self.keep_awake = True
-        self.start_time = time.time()
-        self.world_time = world_time
-        self.offset = world_time - self.start_time
+        self._paused = True
+        self._time_when_paused = world_time
+        self._time = 0.0
+        self.offset = 0.0
+        self.set_time(world_time=world_time)
         self.clock_speed = clock_speed
         self.alarms = []
         self.clock_frequency_measurements = deque(maxlen=5)
@@ -402,6 +433,8 @@ class Clock(Agent):
         pass
 
     def update(self):
+        if self._paused:
+            self._resume_after_pause()
         self.tick()  # moving clock's timestamp one "tick" further.
         while self.messages():
             msg = self.receive()
@@ -423,11 +456,11 @@ class Clock(Agent):
         :returns time, as floating point seconds since 1970-01-01T00:00:00.000000
         """
         if self.clock_speed is None:
-            pass
+            return self._time
+        elif self._paused:
+            return max(self._time, self._time_when_paused)
         else:
-            right_now = (time.time() * self.clock_speed) + self.offset
-            self._time = right_now
-        return self._time
+            return (time.time() + self.offset) * self.clock_speed
 
     def set_time(self, world_time):
         """
@@ -442,9 +475,8 @@ class Clock(Agent):
         if not isinstance(world_time, (int, float)):
             raise AttributeError("Cannot set time using unless world_time is provided \
             as time in seconds since 1970-01-01T00:00:00.000000")
-        self.world_time = world_time
         self.offset = world_time - time.time()
-        self._time = self.world_time
+        self._time = world_time
 
     def set_clock_speed(self, clock_speed=1.00000):
         """sets the clock speed relative to real-time.
@@ -454,10 +486,10 @@ class Clock(Agent):
         if not isinstance(clock_speed, (float, int, type(None))):
             raise AttributeError("Cannot set clock speed using {}. Use int, float or None.".format(clock_speed))
         self.clock_speed = clock_speed
-        if clock_speed is None:
-            pass
-        else:
-            self.offset = self.clock_speed * (self.now()-self.start_time)
+        # if clock_speed is None:
+        #     pass
+        # else:
+        #     self.offset = self.clock_speed * (self.now()-self.start_time)
 
     def get_clock_speed(self):
         """:returns the currently set clock speed."""
@@ -465,14 +497,14 @@ class Clock(Agent):
 
     def tick(self):
         """
-        Ticks the clock one 'tick' further. This is diasbled if the clock_speed is None,
+        Ticks the clock one 'tick' further. This is disabled if the clock_speed is None,
         as the next timestep then is the next alarm.
         """
         if self.clock_speed:
             right_now = self.now()
-            dt = abs(self._last_timestamp - right_now)
+            dt = abs(max(self._last_timestamp, self._time) - right_now)  # uses max in case time has been set.
             self.clock_frequency_measurements.append(dt)
-            self._last_timestamp = right_now
+            self._last_timestamp = self._time = right_now
 
     def set_alarm_clock(self, alarm_time, alarm_message=None):
         """ This function overrides the Agent-class's set_alarm_clock function
@@ -546,6 +578,17 @@ class Clock(Agent):
             if issue_stop_message_if_no_more_events:
                 self.logger("Scheduler requested clock to advance to next event,\nbut there are no more events.")
                 self.send(PauseMessage(sender=self, receiver=Scheduler.__name__))
+
+    def pause(self):
+        """ A method used by the scheduler, to pause the clock """
+        self._paused = True
+        self._time_when_paused = self.now()
+
+    def _resume_after_pause(self):
+        """ A method used by the clock to reset the offset in time,
+        when resuming after being paused. """
+        self._paused = False
+        self.set_time(max(self._time, self._time_when_paused))
 
 
 class SetTimeMessage(AgentMessage):
@@ -628,8 +671,8 @@ class MailMan(Agent):
         # by the mailman itself.
         self.mailing_lists = {}
         self.tolerated_redelivery_attempts = tolerated_redelivery_attempts
-        self.operations.update({SubscribeMessage.__name__: self.subscribe,
-                                UnSubscribeMessage.__name__: self.unsubscribe,
+        self.operations.update({SubscribeMessage.__name__: self.process_subscribe_message,
+                                UnSubscribeMessage.__name__: self.process_unsubscribe_message,
                                 GetSubscriptionTopicsMessage.__name__: self.get_subscription_topics,
                                 GetSubscribersMessage.__name__: self.get_subscriber_list,
                                 DeferredDeliveryMessage.__name__: self.retry_deferred_delivery})
@@ -721,7 +764,7 @@ class MailMan(Agent):
         else:
             self.logger(message="Mailman does not have a method for %s" % str(msg), log_level="WARNING")
 
-    def subscribe(self, msg):
+    def process_subscribe_message(self, msg):
         """ subscribe lets the Agent react to SubscribeMessage and adds the subscriber.
         to registered subscribers. Used by default during `_setup` by all agents.
         :param msg: SubScribeMessage
@@ -746,7 +789,7 @@ class MailMan(Agent):
         else:
             self.logger(message="%s already subscribing to topic: %s" % (agent_uuid, subscription_topic), log_level="DEBUG")
 
-    def unsubscribe(self, msg):
+    def process_unsubscribe_message(self, msg):
         """ unsubscribes a subscriber from messages. Used by default during `_teardown` by all agents.
         :param msg: UnSubscribeMessage
         :return: None
@@ -875,11 +918,11 @@ class MailMan(Agent):
         if agent_uuid not in self.mailing_lists:
             self.logger(message="%s (agent) registered to mailing list..." % agent_uuid, log_level="DEBUG")
         msg = SubscribeMessage(sender=agent, receiver=self, subscription_topic=agent_uuid)
-        self.subscribe(msg)
+        self.process_subscribe_message(msg)
         if agent.__class__.__name__ not in self.mailing_lists:
             self.logger(message="%s (class) registered to mailing list..." % agent.__class__, log_level="DEBUG")
         msg = SubscribeMessage(sender=agent, receiver=self, subscription_topic=agent.__class__.__name__)
-        self.subscribe(msg)
+        self.process_subscribe_message(msg)
 
     def remove(self, agent):
         """ Removes an agent from the agent registry, so that it no longer can receive
@@ -1179,7 +1222,9 @@ class Scheduler(Agent):
 
     def run(self, seconds=None, iterations=None, pause_if_idle=False, run_until_no_new_events=False):
         """ The main operation of the Scheduler.
-        :param seconds: optional number of seconds to run.
+        :param seconds: optional number of real-time seconds to run. If clock speed is not
+        1.00000, the time elapsed in the simulation will be factored by the clockspeed. See
+        clock.set_clock_speed for details.
         :param iterations: If set to an abs(integer) > 0, then the scheduler will
         at most update the abs(turns) number of times before exiting. Using iterations
         (turns) is favoured over attempts to use a timer as run time can differ on
@@ -1190,8 +1235,9 @@ class Scheduler(Agent):
         """
         if seconds is not None:
             if isinstance(seconds, int):
+                right_now = self.clock.now()
                 pause_msg = PauseMessage(sender=self, receiver=self)
-                to_msg = AlarmMessage(sender=self, alarm_time=seconds, alarm_message=pause_msg)
+                to_msg = AlarmMessage(sender=self, alarm_time=seconds + right_now, alarm_message=pause_msg)
                 self.send(to_msg)
 
         if iterations is not None:
@@ -1212,11 +1258,14 @@ class Scheduler(Agent):
         if self.pause:  # resetting self.pause if "run" is called.
             self.pause = False
         super().run()
+        if self.pause:  # pause the clock.
+            self.clock.pause()
 
     def stop(self):
         """
         Use this method to stop the simulation.
         """
+        self.log.info("Scheduler shutdown initiated")
         msg = StopMessage(sender=self, receiver=self)
         self.initiate_shutdown(msg)
 
@@ -1241,7 +1290,8 @@ class Scheduler(Agent):
                     continue
             assert isinstance(agent, Agent), "The scheduler can't run an update on a non-agent."
             if agent.keep_awake or agent.messages():
-                agent._set_time(self.clock.now())
+                if agent is not self.clock:
+                    agent._set_time(self.clock.now())
                 if agent is self.clock or agent is self.mailman:
                     self.update_agent(agent)
                 elif self.multiprocessing:
