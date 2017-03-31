@@ -2,10 +2,10 @@ from outscale.core import Agent, AgentMessage, AlarmMessage, PauseMessage, SetTi
     SubscribeMessage, UnSubscribeMessage, GetSubscribersMessage, GetSubscriptionTopicsMessage, Clock, MailMan, \
     Scheduler, AddNewAgent, RemoveAgent
 from outscale_tests.importable_agents_for_tests import WorkIntensiveAgent, TestAgent
+from random import randint
 import time
 import pickle
 import logging
-# LOG_LEVEL = logging.DEBUG
 LOG_LEVEL = logging.INFO
 from uuid import uuid4
 
@@ -82,8 +82,38 @@ def test01():
 
 
 def test02():  # Clock tests
+    test_duration = 5 # seconds
+    configurations = [[0, 1], [10,1], [100,1], [1000,1], [0, 2], [10,2], [100,2], [1000,2], [10,10]]
+    for set_time, speed in configurations:
+        c = Clock(world_time=set_time, clock_speed=speed)
+        c.run()
+        start = c.now()
+        start_time = time.time()
+        while time.time() < start_time + test_duration:
+            if randint(0,1):
+                c.run()
+            end = c.now()
+        end_time = time.time()
+        elapsed_real_time = end_time - start_time
+        elapsed_clock_time = (end - start) / speed
+        tolerance = abs(elapsed_clock_time - elapsed_real_time)
+        if tolerance != 0:
+            hz = 1/tolerance
+        else:
+            hz = 10**6
+        values = ["end-time: {}".format(end),
+                  "start-time: {}".format(start),
+                  "dt: {}".format(end-start),
+                  "clock-frq: {}".format((end - start) / speed),
+                  "clock-speed: {}".format(speed)]
+        logging.log(logging.DEBUG,
+                    "clock precision is around {} Hz with config: [{},{}] and values: \n\t{}".format(hz, set_time, speed, "\n\t".join(values)))
+        assert hz > 900, "clock frequency was {} Hz".format(hz)
+        print(".", end='')
+
+def test02a():
     c = Clock()
-    assert c.now() < 0.1, "launching the Clock shouldn't take 100 msecs'."
+    # assert c.now() == 0.0, "launching the Clock shouldn't take 100 msecs'."
     assert isinstance(c.get_clock_frequency(), float)  # check that the function works.
     assert isinstance(c.get_clock_speed(), (int, float))
     assert isinstance(c.get_uuid(), int)
@@ -324,6 +354,7 @@ def test05():  # Single threaded scheduler tests.
     end = time.time()
     assert 0.5 < (end - start) < 1.5, "the scheduler should have timedout in ~1 sec. Actual time was {}".format(end-start)
     print("Basic scheduler test complete")
+    s1.stop()
 
 
 def test06():
@@ -369,6 +400,7 @@ def test06():
 
     # testing the schedulers teardown.
     s.teardown()
+    s.stop()
 
 
 def test07():  # Multi(processing/threaded) Scheduler tests
@@ -378,6 +410,7 @@ def test07():  # Multi(processing/threaded) Scheduler tests
     end = time.time()
     assert 2.5 < end - start < 3.5, "the scheduler should have timedout in ~1 sec."
     print("Timeout test for single-processing completed.")
+    s2.stop()
 
 
 def test08():
@@ -466,6 +499,7 @@ def test12():
     s.inbox.append(msg)
     s.run(iterations=5)
     assert TestAgent.__name__ not in s.mailman.mailing_lists.keys(), "TestAgent class should be de-registered by now"
+    s.stop()
 
 
 def test13():
@@ -474,6 +508,7 @@ def test13():
     s.run(seconds=1)
     end = time.time()
     assert end-start < 2, "The scheduler was supposed to stop within a second. Apparently it didn't."
+    s.stop()
 
 
 def test14():
@@ -493,6 +528,7 @@ def test14():
     s.run()
     end = time.time()
     assert end-start < 0.1, "The time progressed slower than expected."
+    s.stop()
 
 
 def test15():
@@ -516,7 +552,6 @@ def test18():
     c.advance_time_to_next_timed_event()
     after = c.now()
     assert dt == after - now, "Error: dt was {}, whilst c.now is {} and now was {}".format(dt, after, now)
-    print("Clock tests complete")
 
 
 def test19():
@@ -562,10 +597,109 @@ def test25():
         if hasattr(a, "get_uuid"):
             if an_agent_uuid == a.get_uuid():
                 assert False, "Hmm... This agent should have been removed..."
+    s.stop()
+
 
 def test26():
     # TODO: Add test where scheduler contains another scheduler.
     pass
+    s = Scheduler(number_of_multi_processors=0)
+    s.run(pause_if_idle=True)
+
+def test27():
+    """ Description:
+    This test has been added for starting and pausing the scheduler, so that it can be
+    assured that time only progresses whilst the scheduler is running!
+
+    Example of bug:
+    >>> s= Scheduler(number_of_multi_processors=0)
+    2017-02-11 15:40:31,334 - INFO - Scheduler is running with uuid: 33892713549718271865085484516606075993
+    2017-02-11 15:40:31,335 - DEBUG - Registering agent Clock 105842964073282974559178697588839425728
+    2017-02-11 15:40:31,335 - DEBUG - Registering agent MailMan 51205723652798966881996459348819854774
+    >>> s.clock.get_clock_speed()
+    1.0
+    >>> s.now()
+    0
+    >>> s.run(5)
+    2017-02-11 15:40:41,988 - DEBUG - Pausing Scheduler, use 'run()' to continue. Use 'stop()' to shutdown remote processors.
+    >>> s.now()
+    10.653609275817871  # <--- 10 seconds passed. Not five!
+    >>> s.now()
+    10.653609275817871
+    >>> s.now()
+    10.653609275817871
+    >>> s.run(5)
+    2017-02-11 15:41:27,403 - DEBUG - Pausing Scheduler, use 'run()' to continue. Use 'stop()' to shutdown remote processors.
+    >>> s.now()
+    10.654609203338623  # <--- Time did not progress.
+    >>> s.now()
+    10.654609203338623  # <--- Time is still not progressing.
+
+    Wanted behaviour:
+    The clock is set using the api calls to the clock:
+
+    >>> s = Scheduler()
+    2017-02-11 15:15:00,197 - INFO - Scheduler is running with uuid: 206586991924651126011034509456004484857
+    2017-02-11 15:15:00,197 - DEBUG - Registering agent Clock 237028863335333747268219642853960174161
+    2017-02-11 15:15:00,197 - DEBUG - Registering agent MailMan 108593288939288121173991719827939198422
+    >>> s.now()
+    0
+    >>> s.clock.set_time(1000)
+    >>> s.now()
+    1000
+    >>> s.run(seconds=5)
+    2017-02-11 15:16:49,395 - DEBUG - Pausing Scheduler, use 'run()' to continue. Use 'stop()' to shutdown remote processors.
+    >>> s.now()
+    1005
+    >>> s.clock.set_clock_speed(200)
+    >>> s.now()
+    1005
+    >>> s.run(seconds=5)
+    2017-02-11 15:17:41,355 - DEBUG - Pausing Scheduler, use 'run()' to continue. Use 'stop()' to shutdown remote processors.
+    >>> s.now()
+    2005
+    >>> s.now()
+    2005
+
+    ...
+
+    """
+    s = Scheduler(number_of_multi_processors=0)
+    time_0 = s.now()
+    clock_speed_0 = s.clock.get_clock_speed()
+    assert int(clock_speed_0) == 1.0000, "clock speed is {} and not 1.0000".format(clock_speed_0)
+    new_time = 1000
+    s.clock.set_time(new_time)
+    clock_time = s.clock.now()
+    assert clock_time == new_time, "the time should be {} but hasn't been set, as it is {}".format(new_time, clock_time)
+    time_1 = s.now()  # the scheduler hasn't run, so it hasn't updated.
+    assert time_0 == time_1, "when the scheduler isn't running, time shouldn't progress."
+    assert time_0 != clock_time, "when the scheduler isn't running, time shouldn't progress."
+
+    s.run(iterations=5)  # Need to prime the scheduler.
+    scheduler_start_time = s.now()
+    clock_start_time = s.clock.now()
+    wall_clock_start_time = time.time()
+    seconds = 5
+    for i in range(seconds):
+        logging.log(logging.DEBUG,
+                    "iteration: {}, start, scheduler time: {}, clock time: {}".format(i, s.now(), s.clock.now()))
+        s.run(seconds=1)
+        logging.log(logging.DEBUG,
+                    "iteration: {}, end, scheduler time: {}, clock time: {}".format(i, s.now(), s.clock.now()))
+        time.sleep(1)  # we add the sleep so that if the clock doesn't sleep when the scheduler isn't
+        # runing, it will reveal that 10 seconds have passed (total time) and not 5.
+    wall_clock_end_time = time.time()
+    clock_end_time = s.clock.now()
+    scheduler_end_time = s.now()
+    timing_checks = [round(clock_end_time-clock_start_time) - seconds == 0,
+                     round(scheduler_end_time-scheduler_start_time) - seconds == 0,
+                     round(wall_clock_end_time-wall_clock_start_time) == seconds * 2]
+    assert all(timing_checks), "The timing checks didn't pass: {}".format(timing_checks)
+    s.stop()
+
+
+
 
 def doall():
     cnt = 0  # counter of tests.
@@ -573,6 +707,7 @@ def doall():
         if k.startswith("test") and callable(v):
             v()
             cnt += 1
+            print("test {} done".format(k))
     print("Ran {} tests with success.".format(cnt))
 
 if __name__ == "__main__":
