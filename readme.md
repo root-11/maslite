@@ -29,14 +29,14 @@ using `send` to send messages, and using `receive` to get messages.
 The user can thereby create an agent using just:
 
     class HelloMessage(AgentMessage):
-        def __init__(self, sender, receiver, topic="Hello")
-            super().__init__(sender=sender, receiver=receiver, topic=topic)
+        def __init__(self, sender, receiver)
+            super().__init__(sender=sender, receiver=receiver)
     
     
     class myAgent(Agent):
         def __init__(self):
             super().__init__()
-            self.operations.update({"Hello": self.hello})
+            self.operations.update({HelloMessage.__name__: self.hello})
         
         def update(self):
             while self.messages():
@@ -54,7 +54,7 @@ The user can thereby create an agent using just:
 That simple!
 
 The dictionary `self.operations` which is inherited from the `Agent`-class
-is updated with `{"Hello": self.hello}`. `self.operations` thereby acts 
+is updated with `{HelloMessage.__class__: self.hello}`. `self.operations` thereby acts 
 as a pointer for when a `HelloMessage` arrives, so when the agents 
 update function is called, it will get the topic from the message's and 
 point to the function `self.hello`, where `self.hello` in this simple
@@ -87,6 +87,7 @@ others:
                     self.priority_messages.append(msg)
                 else:
                     self.normal_messages.append(msg)
+            
             # 2. We've now sorted the incoming messages and can now extend
             # the priority message deque with the normal messages:
             self.priority_messages.extend(normal_messages)
@@ -101,19 +102,19 @@ others:
                     ...
 
 The only thing which the user needs to worry about, is that the update
- function cannot depend on any externals. The agent is confined to
- sending (`self.send(msg)`) and receiving (`msg = self.receive()`) 
- messages which must be processed within the function `self.update`.
- Any responses to sent messages will not happen until the agent runs
- update again.
+function cannot depend on any externals. The agent is confined to
+sending (`self.send(msg)`) and receiving (`msg = self.receive()`) 
+messages which must be processed within the function `self.update`.
+Any responses to sent messages will not happen until the agent runs
+update again.
 
- If any state needs to be stored within the agent, such as for example
- memory of messages sent or received, then the agents `__init__` should
- declare the variables as class variables and store the information.
- Calls to databases, files, etc. can of course happen, including the usage
- of `self.setup()` and `self.teardown()` which are called when the agent
- is, respectively, started or stopped. See boiler-plate for a more 
- detailed description.
+If any state needs to be stored within the agent, such as for example
+memory of messages sent or received, then the agents `__init__` should
+declare the variables as class variables and store the information.
+Calls to databases, files, etc. can of course happen, including the usage
+of `self.setup()` and `self.teardown()` which are called when the agent
+is, respectively, started or stopped. See the boiler-plate (below) for a more 
+detailed description. 
  
 ### Boilerplate
 
@@ -125,9 +126,12 @@ of an agent, including:
 2. extend `setup` and `teardown` for start and end of the agents lifecycle.
 4. use `update` with actions before(1), during(2) and after(3) reading messages.
 
-There is no requirements for the agent to be programmed in procedural,
- functional or object oriented manner. Doing that is completely up to 
- the user of Outscale.
+There are no requirements, for using all functions. The boiler-plate merely
+seeks to illustrate typical usage.
+
+There are also no requirements for the agent to be programmed in procedural,
+functional or object oriented manner. Doing that is completely up to the 
+user of Outscale.
 
     class MyAgent(Agent):
         def __init__(self):
@@ -199,23 +203,44 @@ Messages are objects and are required to use the base class `AgentMessage`.
 
 When agents receive messages they should be interpreted by their topic, which
 should (by convention) also be the class name of the message. Practice has shown
-that there are no obvious reasons where this convention shouldn't apply. An example
-is shown below:
+that there are no obvious reasons where this convention shouldn't apply, so 
+messages which don't have a topic declared explicitly inherit the class name. 
+An example is shown below:
 
-    class GetPrice(AgentMessage):
-        """
-        Description of the message
-        """
-        def __init__(self, sender, senders_db_alias):
-            super().__init__(sender=sender, receiver=BidDatabase.__name__, 
-                             topic=self.__class__.__name__)
-            self.senders_db_alias
+    >>> from outscale.core import AgentMessage
+    >>> class MyMsg(AgentMessage):
+    ...     def __init__(sender, receiver):
+    ...         super().__init__(sender=sender, receiver=receiver)
+    ...
     
+    >>> m = MyMsg(sender=1, receiver=2)
+    >>> m.topic
+    
+    'MyMsg'
+
+Adding functions to messages. Below is an example of a message with it's own
+function(s): 
+
+    class DatabaseUpdateMessage(AgentMessage):
+        """ Description of the message """
+        def __init__(self, sender, senders_db_alias):
+            super().__init__(sender=sender, receiver=DatabaseAgent.__name__)
+            self.senders_db_alias
+            self._states = {1: 'new', 2: 'read'} 
+            self._state = 1
+            
         def get_senders_alias(self):
             return self.senders_db_alias
+            
+        def __next__(self)
+            if self._state + 1 <= max(self._states.keys()):
+                self._state += 1
+        
+        def state(self):
+            return self._states[self._state]
 
-The class `GetPrice` is subclassed from the `AgentMessage` so that the basic message
-handling properties are available for GetPrice. This helps the user as she/he doesn't
+The class `DatabaseUpdateMessage` is subclassed from the `AgentMessage` so that the basic message
+handling properties are available for the DatabaseUpdateMessage. This helps the user as s/he doesn't
 need to know anything about how the message handling system works.
 
 The init function requires a sender, which normally defaults to the agent's `self`.
@@ -228,23 +253,45 @@ should be instructed to use, for example, the `senders_db_alias`. For the purpos
 of illustration, the message above contains the function `get_senders_alias` which
 then can be persistent over multiple runs.
 
-__Conventions__:
+The message is also designed to be returned to save pythons garbage collector:
+When the DatabaseAgent receives the message, the `__next__`-function allows the
+agent to call `next(msg)` to progress it's `self._state` from '1' (new) to '2' (read)
+before returning it to the sender using 'self.send(msg)'. In such case it is 
+important that the DatabaseAgent doesn't store the message in its variables, as
+the message must __not__ have any open object pointers when sent. This is due to
+multiprocessing which uses `multiprocessing.queue`s for exchanging messages, which
+require that `Agent`s and `AgentMessage`s can be pickled.
+
+If an `Agent` can't be pickled when added to the `Scheduler`, the scheduler will
+raise an error explaining that the are open pointer references. Messages are a 
+bit more tolerant as the `mailman` that manages the messages will try to send
+the message and hope that the shared pointer will not cause conflicts. If sharing
+of object pointers is required by the user (for example during prototyping) the 
+scheduler must be set up with `number_of_multiprocessors=0` which forces the 
+scheduler to run single-process-single-threaded. 
+
+
+__Message Conventions__:
 
 * Messages which have `None` as receiver are considered broadcasts. The logic is 
 that if you don't know who exactly you are sending it to, send it it to `None`, and
-you might get a response if any other agent react on the topic of the message. 
+you might get a response if any other agent react on the topic of the message.
+The magic behind the scenes is handled by the schedulers mailmanager (`mailman`) 
+which keeps track of all topics that any `Agent` subscribes to. 
 By convention the topic of the message should be `self.__class__.__name__`.
 
-* Messages which have a `Class.__name__` as receiver, will be received by all agents
+* Messages which have a `class.__name__` as receiver, will be received by all agents
 of that class.
 
 * Messages which have a particular UUID as receiver, will be received by the agent 
 holding that UUID. If anyone other agent is tracking that UUID, by subscribing to
 it, then the tracking agent will receive a `deepcopy` of the message, and not the 
-original.
+original. 
+
+* To get the UUID of the sender the method `msg.get_sender()` is available.
 
 * To subscribe/unsubscribe to messages the agents should use the `SubscribeMessage` 
-from `outscale.core`: 
+that are importable from `outscale.core`: 
 
 
     class SubscribeMessage(AgentMessage):
@@ -298,7 +345,8 @@ scheduler. The internal operation of the agents `run` method guarantees this:
         else:
             pass
 
-...
+The can extend the setup methods either by writing their own `self.setup`-method 
+(_recommended approach_) or by overriding 'self._setup' (_not recommended_).
 
 
 ### How to load data from a database connection 
@@ -306,29 +354,71 @@ scheduler. The internal operation of the agents `run` method guarantees this:
 When agents are added to the scheduler `setup` is run.
 When agents are removed from outscale `teardown` is run.
 
-if agents are added and removed iteratively, they should load their 
+if agents are added and removed iteratively, they will load their 
 state during `setup` and store it during `teardown` from some database. 
 It is not necessary to let the scheduler know where the database is. 
-The agents can keep track of this themselves.
+The agents can keep track of this themselves. 
 
-Though the user might find `get_uuid()` attractive, the user should keep
+Though the user might find it attractice to use  `get_uuid()` to identify, 
+a particular `Agent` the user should keep 
 in mind that the UUID is unique with __every__ creation and destruction 
 of the agent. To expect or rely on the UUID to be persistent would lead 
 to logical fallacy.
 
 The user must use`setup` and `teardown` and include a naming convention 
 that assures that the agent doesn't depend on the UUID. For example:
- 
+
+    # get the data from the previously stored agent
     begin transaction:
         id = SELECT agent_id FROM stored_agents WHERE agent_alive == False LIMIT 1;
         UPDATE stored_agents WHERE agent_id == id VALUES (agent_live = TRUE);
         properties = SELECT * FROM stored_agents WHERE agent_id == id;
     end transaction;
-    # Finally:
-    load(properties)
+    # Finally let the agent load the properties:
+    self.load(properties) 
 
 An approach such as above assures that the agent that is revived has no 
 dependency to the UUID.
+
+### Getting started
+
+To get started only 3 steps are required:
+
+Step 1. setup a scheduler
+
+    >>> from outscale.core import Agent, Scheduler
+    >>> s = Scheduler(number_of_multi_processors=0)
+    
+Step 2. create agents which have `setup`, `teardown` and `update` methods.
+
+    >>> class MyAgent(Agent):
+    ...     def __init__(self):
+    ...         super().__init__()
+    ...     def setup(self):
+    ...         pass
+    ...     def teardown(self):
+    ...         pass
+    ...     def update(self):
+    ...         pass
+        
+    >>> m = MyAgent()
+    >>> s.add(m)
+    2017-02-11 15:05:27,171 - DEBUG - Registering agent MyAgent 331228774898081874557512062996431768652
+
+Step 3. run the scheduler (nothing happens here)
+
+    >>> s.run(pause_if_idle=True)
+    2017-02-11 15:09:20,120 - DEBUG - Pausing Scheduler, use 'run()' to continue. Use 'stop()' to shutdown remote processors.
+
+Other methods such as `s.run(seconds=None, iterations=None, 
+pause_if_idle=False, run_until_no_new_events=False)` can be applied as the user,
+finds it suitable.
+
+Step 4. call the schedulers `stop` method to gracefully execute the `teardown` method
+on all agents as a part of the shutdown procedure.
+
+    >>> s.stop()
+    2017-02-11 15:09:37,055 - DEBUG - Scheduler shutdown complete.
 
 
 ### Debugging with pdb or breakpoints (PyCharm)
@@ -366,12 +456,43 @@ indicative of any activity.
 
 ### Adjust runspeed using the clock.
 
+The clock is a powertool in OutScale that should be studied. 
 The clock has the ability to:
 
-* run at speeds -inf; +inf and any floating point progressing in between. Examples: xxxxxxxxxxxx
-* start at -inf; +inf and any floating point time in between.
+* run at speeds `-inf`; `+inf` and any floating point progressing in between. 
 
-The clock is set using the api calls:
+* start at time `-inf`; `+inf` and any floating point time in between.
+
+The clock is set using the api calls to the clock:
+
+    >>> s = Scheduler()
+    2017-02-11 15:15:00,197 - INFO - Scheduler is running with uuid: 206586991924651126011034509456004484857
+    2017-02-11 15:15:00,197 - DEBUG - Registering agent Clock 237028863335333747268219642853960174161
+    2017-02-11 15:15:00,197 - DEBUG - Registering agent MailMan 108593288939288121173991719827939198422
+    >>> s.now()
+    0
+    >>> s.clock.set_time(1000)
+    >>> s.now()
+    1000
+    >>> s.run(seconds=5)
+    2017-02-11 15:16:49,395 - DEBUG - Pausing Scheduler, use 'run()' to continue. Use 'stop()' to shutdown remote processors.
+    >>> s.now()
+    1005
+    >>> s.clock.set_clock_speed(200)
+    >>> s.now()
+    1005
+    >>> s.run(seconds=5)
+    2017-02-11 15:17:41,355 - DEBUG - Pausing Scheduler, use 'run()' to continue. Use 'stop()' to shutdown remote processors.
+    >>> s.now()
+    2005
+    >>> s.now()
+    2005
+    
+
+In the calls (above) the scheduler first sets the time to `1000` (whatever that is).
+using `s.clock.set_time`. Next it sets the clock speed using `s.clock.set_clock_speed`
+to 200 times real-time
+
 
 1. `clock.set_time(time in seconds)`. Typically time is set to time since 1970-01-01T00:00:00.000000 - the UNIX epoch - using `time.time()`
 2. `clock.set_clock_speed(value=1.000000)` 
