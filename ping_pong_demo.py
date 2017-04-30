@@ -1,5 +1,6 @@
-from outscale.core import *
-from random import randint
+from outscale.core import Agent, AgentMessage, Scheduler
+from collections import deque
+
 """ Provides a demonstration of the ping-pong pattern between two
 agents with priority inbox, who use the message topic as signal.
 """
@@ -25,7 +26,7 @@ class PingPongPlayer(Agent):
             priority_topics = ['ping']
             priority_messages = deque()  # from collections import deque
             normal_messages = deque()
-            while self.messages():
+            while self.messages:
                 msg = self.receive()
                 if msg.get_topic() in priority_topics:
                     priority_messages.append(msg)
@@ -34,20 +35,22 @@ class PingPongPlayer(Agent):
             priority_messages.extend(normal_messages)
             self.inbox.extend(priority_messages)
 
-        print("ID {} got {} ping pong balls. Playing them back now...".format(str(self.get_uuid())[-3:], len(self.inbox)))
-        while self.messages():
+        print("ID {} got {} ping pong balls. Playing them back now...".format(str(self.uuid)[-3:], len(self.inbox)))
+        while self.messages:
             msg = self.receive()
-            operation = self.operations.get(msg.get_topic())
+            operation = self.operations.get(msg.topic)
             if operation is not None:
                 operation(msg)
             else:
-                self.logger.debug("%s: don't know what to do with: %s" % (self.get_uuid(), str(msg)))
+                self.logger(log_message="%s: don't know what to do with: %s" % (self.uuid, str(msg)),
+                            log_level="DEBUG")
 
     def pingpong(self, msg):
         assert isinstance(msg, PingPongBall)
         msg.hit()
-        print("{}".format(msg.get_topic()))
+        print("{}".format(msg.topic))
         self.send(msg)
+
 
 
 class PingPongBall(AgentMessage):
@@ -61,6 +64,7 @@ class PingPongBall(AgentMessage):
             self.topic = 'pong'
         # swopping sender and receiver.
         self.sender, self.receiver = self.receiver, self.sender
+
 
 def demo():
     s = Scheduler(number_of_multi_processors=0)
@@ -95,5 +99,7 @@ def test00():
     s.run(iterations=abs(turns))
 
 
+
 if __name__ == "__main__":
+    # test00()
     demo()
