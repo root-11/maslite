@@ -1101,7 +1101,8 @@ class Scheduler(Agent):
         # register, otherwise the mailman can't add messages to the scheduler's inbox.
         self.add(self.clock)  # launch in __init__
         self.add(self.mailman)
-        self.subscribe(LogMessage.__name__)
+        for msgtype in self.operations.keys():
+            self.subscribe(msgtype)
 
     def add(self, agent):
         """ Adds an agent to the scheduler
@@ -1116,11 +1117,11 @@ class Scheduler(Agent):
                     self.log.error("Agent could not be pickled: \n{}".format(str(agent)))
                     return
         self.log.debug("Registering agent {} {}".format(agent.__class__.__name__, agent.uuid))
-        self.mailman.add(agent)  # self.agent_register[agent.get_uuid()] = agent
+        self.mailman.add(agent)  # self.agent_register[agent.uuid] = agent
         self.agents.append(agent)
         if not agent.is_setup():
             agent.subscribe(agent.uuid)
-            agent.subscribe(self.__class__.__name__)
+            agent.subscribe(agent.__class__.__name__)
             agent.setup()
             agent._is_setup = True
             self.send_and_receive(agent)
@@ -1478,21 +1479,21 @@ class Scheduler(Agent):
 
 
 class AddNewAgent(AgentMessage):
-    def __init__(self, sender, agent, receiver=Scheduler.__class__.__name__):
-        super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
+    def __init__(self, sender, agent, receiver=Scheduler.__name__):
+        super().__init__(sender=sender, receiver=receiver)
         assert isinstance(agent, Agent)
         self.agent = agent
 
 
 class RemoveAgent(AgentMessage):
     def __init__(self, sender, agent_or_agent_uuid, receiver=Scheduler.__name__):
-        super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
+        super().__init__(sender=sender, receiver=receiver)
         self.agent_to_be_removed = agent_or_agent_uuid
 
 
 class StopConfirmationMessage(AgentMessage):
     def __init__(self, sender, receiver):
-        super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
+        super().__init__(sender=sender, receiver=receiver)
 
 
 class Processor(multiprocessing.Process):  # class Processor(multiprocessing.Process):
