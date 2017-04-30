@@ -486,8 +486,7 @@ class Trader(Agent):
             if self.in_contract_with == msg.sender:
                 self.in_contract_with = None
         else:
-            raise NotImplementedError("The following message was received as an opportunity,\
-             \n but no method is in place to handle it:\n{}".format(str(msg)))
+            raise NotImplementedError("The following message was received as an opportunity, but no method is in place to handle it:\n{}".format(str(msg)))
 
     def sort_opportunities(self):
         raise NotImplementedError("The subclasses Buyer & Seller must implement the method: sort_opportunities.")
