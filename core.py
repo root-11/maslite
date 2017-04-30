@@ -9,9 +9,9 @@ from random import randint
 from uuid import uuid4
 from copy import deepcopy
 from collections import deque
-from outscale.utils import object_printer
 
-LOG_LEVEL = logging.DEBUG  # TODO Check that everything is logged!
+
+LOG_LEVEL = logging.INFO
 
 
 class AgentMessage(object):
@@ -22,43 +22,59 @@ class AgentMessage(object):
     where the mailman needs to figure out who is subscribing and
     how to get it to the subscribers.
     """
-    def __init__(self, sender, receiver=None, topic=None, logged_message=False):
-        self.sender = None
-        self.set_sender(sender)  # sender must be an agent, as a response otherwise can't be returned.
-        self.receiver = None
-        self.set_receiver(receiver=receiver)  # the uuid of the receiving agent.
+    def __init__(self, sender, receiver=None, topic=None, tolerated_delivery_attempts=10):
+        """
+        :param sender: The agent (class Agent) or uuid4.int of the sender 
+        :param receiver: None (broadcast) or The agent (class Agent) or uuid4.int of the receiver 
+        :param topic: The topic; default is self.__class__.__name__ of the message subclass
+        """
+        self._sender = None
+        self.sender = sender  # sender must be an agent, as a response otherwise can't be returned.
+        self._receiver = None
+        self.receiver = receiver  # the uuid of the receiving agent.
         if topic is None:
             topic = self.__class__.__name__
-        self.topic = topic          # the keyword that the receiver should react upon.
-        self.delivery_attempts = 0   # a auto-incrementing value used by the mailman for failed delivery attempts.
-        self.uuid = uuid4().int     # this is our worldwide unique id.
+        self._topic = topic          # the keyword that the receiver should react upon.
+        self._delivery_attempts_left = tolerated_delivery_attempts   # an auto-decrementing value used by the mailman for failed delivery attempts.
+        self._uuid = uuid4().int     # this is our worldwide unique id.
 
     def __str__(self):
-        return object_printer(self)
+        return "<{}>\n\tFrom: {}\n\tTo: {}\n\tTopic: {}\n\tMessage UUID: {}".format(
+            self.__class__.__name__, self.sender, self.receiver, self.topic, self.uuid)
 
-    def copy(self):
-        """
-        :return: deep copy of the object.
-        """
-        return deepcopy(self)
+    @property
+    def sender(self):
+        return self._sender
 
-    def get_receiver(self):
+    @sender.setter
+    def sender(self, sender):
         """
-        :return: The intended receiver of the message
-        """
-        return self.receiver
-
-    def set_receiver(self, receiver):
-        """
-        :param receiver: the intended receiver of the message. Typically the sending
-         agents uuid, retrievable as agent.get_uuid().
-         if the receiver is None, the message is treated as a broadcast to all subscribers
-         of the topic. If there are no subscribers of that topic, the mailman will drop
-         the message.
+        :param sender: the sender (FROM)
         :return:
         """
+        if isinstance(sender, Agent):
+            self._sender = sender.uuid
+        elif sender is None:
+            self._sender = None
+        else:
+            self._sender = sender
+
+    @property
+    def receiver(self):
+        return self._receiver
+
+    @receiver.setter
+    def receiver(self, receiver):
+        """
+                :param receiver: the intended receiver of the message. Typically the sending
+                 agents uuid, retrievable as agent.get_uuid().
+                 if the receiver is None, the message is treated as a broadcast to all subscribers
+                 of the topic. If there are no subscribers of that topic, the mailman will drop
+                 the message.
+                :return:
+                """
         if isinstance(receiver, Agent):
-            self.receiver = receiver.get_uuid()
+            self._receiver = receiver.uuid
         elif receiver is None:
             # If receiver is None, the message is treated as a
             # broadcast to all subscribers of the topic.
@@ -66,43 +82,51 @@ class AgentMessage(object):
             # will drop the message...
             receiver_uuid = None
         else:
-            self.receiver = receiver
+            self._receiver = receiver
 
-    def get_sender(self):
+    def copy(self):
         """
-        :return: The sender of the message. Typically also the sending agents uuid.
+        :return: deep copy of the object.
         """
-        return self.sender
+        return deepcopy(self)
 
-    def set_sender(self, sender):
-        """
-        :param sender: the sender (FROM)
-        :return:
-        """
-        if isinstance(sender, Agent):
-            self.sender = sender.get_uuid()
-        elif sender is None:
-            self.sender = None
-        else:
-            self.sender = sender
-
-    def get_topic(self):
+    @property
+    def topic(self):
         """
         :return: The topic of the message. Typically the saame as Message.__class__.__name__
         """
-        return self.topic
+        return self._topic
 
-    def get_uuid(self):
+    @topic.setter
+    def topic(self, topic):
+        self._topic = topic
+
+    # def get_uuid(self):
+    #     """
+    #     :return: returns the UUID of the message.
+    #     """
+    #     return self.uuid
+
+    @property
+    def uuid(self):
         """
         :return: returns the UUID of the message.
         """
-        return self.uuid
+        return self._uuid
+
+    @uuid.setter
+    def uuid(self, value):
+        raise ValueError("UUID is permanent throughout the messages' lifetime and cannot be set after instantiation.")
+
+    @property
+    def delivery_attempts_left(self):
+        return self._delivery_attempts_left
 
     def failed_delivery_attempt(self):
         """
         Counter used by the mailman to determine when to stop attempts to redeliver the message.
         """
-        self.delivery_attempts += 1
+        self._delivery_attempts_left -= 1
 
 
 class SubscribeMessage(AgentMessage):
@@ -113,9 +137,6 @@ class SubscribeMessage(AgentMessage):
         super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
         self.subscription_topic = subscription_topic
 
-    def get_subscription_topic(self):
-        return self.subscription_topic
-
 
 class UnSubscribeMessage(AgentMessage):
     """ A message class used to unsubscribe from messages. Used by all agents during `teardown` to
@@ -124,9 +145,6 @@ class UnSubscribeMessage(AgentMessage):
         assert isinstance(subscription_topic, (int, float, str)), "A subscription topic must be int, float or str."
         super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
         self.subscription_topic = subscription_topic
-
-    def get_subscription_topic(self):
-        return self.subscription_topic
 
 
 class StartMessage(AgentMessage):
@@ -156,26 +174,72 @@ class LogMessage(AgentMessage):
     where agents will be able to keep a log handler open. The log messages are therefore
     posted via the messaging system and posted to the logs by the scheduler.
     """
-    def __init__(self, sender, receiver, log_level, message):
+    def __init__(self, sender, receiver, log_level, log_message):
         log_levels = {'CRITICAL', 'ERROR', 'WARN', 'WARNING', 'INFO', 'DEBUG', 'NOTSET'}
         assert log_level in log_levels, "Log_level '{}' not in known log_levels: {}".format(log_level, log_levels)
         super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
         self.log_level = log_level
-        self.message = message
+        self.log_message = log_message
 
-    def get_log_level(self):
-        return self.log_level
 
-    def get_log_message(self):
-        return self.message
+class SetTimeAndClockSpeedMessage(AgentMessage):
+    """
+    Message used to set the time on the clock after start.
+    """
+    def __init__(self, sender, receiver=None, new_time=0, new_clock_speed=1.000000):
+        """
+        :param sender: Sender's uuid
+        :param receiver: Reciever's uuid, or if set to None: all subscribers of this message type.
+        :param new_time: world_time as time in seconds since 1970-01-01T00:00:00.000000
+        :param new_clock_speed: value int or float
+        Time elapses twice as fast as realtime, with a value of 2.0.
+        Time elapses ten times slower than realtime with a value of 0.1
+        """
+        super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
+        if not isinstance(new_time, (float, int)):
+            raise AttributeError("Cannot set time using {}. Use int or float.".format(new_time))
+        if not isinstance(new_clock_speed, (float, int, type(None))):
+            raise AttributeError("Cannot set clock speed using {}. Use int or float or None.".format(new_clock_speed))
+        self.new_time = new_time
+        self.new_clock_speed = new_clock_speed
+
+
+class GetSubscribersMessage(AgentMessage):
+    """ A message class used to obtain the a list of subscribers."""
+    def __init__(self, sender, subscription_topic, receiver=None):
+        super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
+        assert str(subscription_topic)
+        self.subscription_topic = subscription_topic
+        self.subscribers = None
+
+
+class GetSubscriptionTopicsMessage(AgentMessage):
+    """ A message class used to obtain list of topics that can be subscribed to. """
+    def __init__(self, sender, receiver, subscription_topics=None):
+        super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
+        self.subscription_topics = subscription_topics
+
+
+class DeferredDeliveryMessage(AgentMessage):
+    """ A message class used internally by the mailman to handle deferred
+    delivery of messages. """
+    def __init__(self, msg, intended_receiver):
+        assert isinstance(msg, AgentMessage)
+        super().__init__(sender=None, receiver=None, topic=self.__class__.__name__)
+        self.deferred_message = msg
+        self.intended_receiver = intended_receiver
 
 
 class Agent(object):
     """ The default agent class. """
-    def __init__(self):
+    def __init__(self, uuid=None):
+        """
+        :param uuid: None (default). Should only be set for inspection purposes. 
+        """
         self.inbox = deque()      # when using self.receive() we get the messages from here
         self.outbox = deque()     # here we post messages when using self.send(msg)
-        self.uuid = uuid4().int   # this is our worldwide unique id.
+        if uuid is None:
+            self._uuid = uuid4().int   # this is our worldwide unique id.
         self.operations = dict()  # this is the link between msg.topic and agents response.
         self._is_setup = False    # this tells us that the agent is/ is not setup
         self._quit = False        # this tells the scheduler to kill the agent.
@@ -183,8 +247,22 @@ class Agent(object):
         self.keep_awake = False   # this prevents the agent from entering sleep mode when there
                                   # are no new messages.
 
+    @property
+    def uuid(self):
+        """
+        :return: Returns the UUID of the agent. This is guaranteed to be volatile and unique.
+        No two runs of the same simulation will have agents with the same UUID.
+        """
+        # if not hasattr(self, "uuid"):
+        #     raise AttributeError("{} has no attribute self.uuid..! Have you remembered to run super().__init__() on the Agent class?".format(type(self)))
+        return self._uuid
+
+    @uuid.setter
+    def uuid(self, value):
+        raise ValueError("UUID cannot be set once the object has been instantiated")
+
     def __str__(self):
-        return object_printer(self)
+        return "<{}> UUID: {}".format(self.__class__.__name__, self._uuid)
 
     def send(self, msg):
         """ The only method for sending messages in the system.
@@ -193,8 +271,10 @@ class Agent(object):
         :param msg: any pickleable object.
         :return: None
         """
+        assert isinstance(msg, AgentMessage), "sending messages that aren't based on AgentMessage's wont work"
         self.outbox.append(msg)
 
+    @property
     def messages(self):
         """
         :return: Boolean: True if there are messages.
@@ -208,10 +288,10 @@ class Agent(object):
         """
         :return: Returns AgentMessage if any.
         """
-        try:
+        if self.messages:
             return self.inbox.popleft()
-        except IndexError:
-            pass
+        else:
+            return None
 
     def setup(self):
         """ Users can implement this setup method for starting up the kernel agent.
@@ -222,15 +302,13 @@ class Agent(object):
         functions in the Agent's class' operations at setup:
 
         def setup(self):
-            msg = SubscribeMessage(sender=self, subscription_topic=self.get_uuid())
-            self.send(msg)
+            self.subscribe(self.uuid)
 
             self.operations.update({"new request": self.new_request,
                                     "hello": self.receive_hello_msg})
 
             for topic in self.operations:
-                msg = SubscribeMessage(self, None, subscription_topic=topic)
-                self.send(msg)
+                self.subscribe(topic)
 
         Where appropriate, functions can to use numba's jit gcc compiler:
 
@@ -242,12 +320,6 @@ class Agent(object):
         """
         raise NotImplementedError("derived classes must implement a setup method")
 
-    def _setup(self):
-        """Private setup method that assure that the Agent is registered properly."""
-        self.subscribe(self.get_uuid())
-        self.subscribe(self.__class__.__name__)
-        self._is_setup = True
-
     def teardown(self):
         """Users can implement this teardown method for shutting down the kernel agent.
 
@@ -255,12 +327,6 @@ class Agent(object):
 
         """
         raise NotImplementedError("derived classes must implement a update method")
-
-    def _teardown(self):
-        """ Private teardown method that assures that the Agent is de-registered properly."""
-        self.unsubscribe(self.get_uuid())
-        self.unsubscribe(self.__class__.__name__)
-        self._is_setup = False
 
     def update(self):
         """ Users must implement the update method using:
@@ -301,46 +367,41 @@ class Agent(object):
 
     def run(self):
         """ The main operation of the Agent. """
-        if not self.is_setup():
-            self._setup()
+        if not self._is_setup:
             self.setup()
+            self._is_setup = True
         if not self._quit:
             self.update()
         if self._quit:
             self.teardown()
-            self._teardown()
-        else:
-            pass
-
-    def get_uuid(self):
-        """ Returns the UUID of the agent. This is guaranteed to be volatile and unique.
-        No two runs of the same simulation will have agents with the same UUID."""
-        if not hasattr(self, "uuid"):
-            raise AttributeError("{} has no attribute self.uuid..! Have you remembered to run super().__init__() on the Agent class?".format(type(self)))
-        return self.uuid
 
     def is_setup(self):
         """ A function used to check if the agent is setup."""
         return self._is_setup
 
-    def logger(self, message, log_level='NOTSET'):
+    def logger(self, log_message, log_level='NOTSET'):
         """ A helper function so that people use message for logging and don't
         attempt to keep a file.io open as logging.getlogger normal does.
         :param message: Any message that is supposed to be logged.
         :param log_level: A valid log level. See LogMessage for details.
         :return: None
         """
-        msg = LogMessage(sender=self, receiver=None, log_level=log_level, message=message)
+        msg = LogMessage(sender=self, receiver=None, log_level=log_level, log_message=log_message)
         self.send(msg)
 
-    def now(self):
+    @property
+    def time(self):
         """ Returns the time in the simulation. This `time` is posted on the agent when
         it is update by the scheduler. In common usage this should be offset from realtime
         by less than 1 ms. Not that time doesn't progress whilst the agent is being updated.
         Any subclass' need for chronology should use an internal counter."""
         return self._time
 
-    def set_alarm_clock(self, alarm_time, alarm_message=None):
+    @time.setter
+    def time(self, new_time):
+        self._time = new_time
+
+    def set_timed_alarm(self, alarm_time, alarm_message=None):
         """ A method to be used by the agent to set (and later receive) an alarm message.
 
         :param alarm_time: int, float: The time (from `self.now()` ) where the agent should
@@ -384,12 +445,6 @@ class Agent(object):
         msg = UnSubscribeMessage(sender=self, subscription_topic=topic)
         self.send(msg=msg)
 
-    def _set_time(self, time):
-        """
-        :param time: Simulation time, provided by the clocks "now" function.
-        """
-        self._time = time
-
 
 class Sentinel(object):
     """
@@ -401,7 +456,8 @@ class Sentinel(object):
 
 
 class Clock(Agent):
-    """The clock is a basic time-keeping object used by all objects."""
+    """The clock is a basic time-keeping object that updates all agents prior to
+    running agent.update() """
     def __init__(self, world_time=0, clock_speed=1.00000):
         """
         :param: world_time: int, float: time as seconds since 1970-01-01T00:00:00.000000
@@ -415,19 +471,18 @@ class Clock(Agent):
         self.keep_awake = True
         self._paused = True
         self._time_when_paused = world_time
-        self._time = 0.0
+        self.clock_time = 0.0
         self.offset = 0.0
-        self.set_time(world_time=world_time)
-        self.clock_speed = clock_speed
+        self.time = world_time
+        self._clock_speed = clock_speed
         self.alarms = []
         self.clock_frequency_measurements = deque(maxlen=5)
-        self.operations.update({SetTimeMessage.__name__: self.set_time_using_msg,
+        self.operations.update({SetTimeAndClockSpeedMessage.__name__: self.set_time_using_msg,
                                 AlarmMessage.__name__: self.set_alarm})
-        self._last_timestamp = self.now()
+        self._last_timestamp = self.time
 
     def setup(self):
-        sub_msg = SubscribeMessage(sender=self, subscription_topic=SetTimeMessage.__name__)
-        self.send(sub_msg)
+        self.subscribe(SetTimeAndClockSpeedMessage.__name__)
 
     def teardown(self):
         pass
@@ -436,33 +491,36 @@ class Clock(Agent):
         if self._paused:
             self._resume_after_pause()
         self.tick()  # moving clock's timestamp one "tick" further.
-        while self.messages():
+        while self.messages:
             msg = self.receive()
-            operation = self.operations.get(msg.get_topic())
+            operation = self.operations.get(msg.topic)
             if operation is not None:
                 operation(msg)
         self.check_alarm_clock()  # finally, check the alarm clock.
 
     # functions that react on messages
     def set_time_using_msg(self, msg):
-        assert isinstance(msg, SetTimeMessage)
-        self.set_time(msg.get_new_time())
-        self.set_clock_speed(msg.get_new_clock_speed())
+        assert isinstance(msg, SetTimeAndClockSpeedMessage)
+        self.time = msg.new_time
+        self.clock_speed = msg.new_clock_speed
 
-    # private functions
-    def now(self):
+    @property
+    def time(self):
         """
         method equivalent to time.time()
         :returns time, as floating point seconds since 1970-01-01T00:00:00.000000
         """
         if self.clock_speed is None:
-            return self._time
+            right_now = self._time
         elif self._paused:
-            return max(self._time, self._time_when_paused)
+            right_now = max(self._time, self._time_when_paused)
         else:
-            return (time.time() + self.offset) * self.clock_speed
+            right_now = (time.time() + self.offset) * self.clock_speed
+        self._time = right_now
+        return right_now
 
-    def set_time(self, world_time):
+    @time.setter
+    def time(self, world_time):
         """
         :parameter world_time:  time in seconds since simulation start.
 
@@ -474,37 +532,46 @@ class Clock(Agent):
         """
         if not isinstance(world_time, (int, float)):
             raise AttributeError("Cannot set time using unless world_time is provided \
-            as time in seconds since 1970-01-01T00:00:00.000000")
+                    as time in seconds since 1970-01-01T00:00:00.000000")
         self.offset = world_time - time.time()
         self._time = world_time
 
-    def set_clock_speed(self, clock_speed=1.00000):
+    @property
+    def clock_speed(self):
+        return self._clock_speed
+
+    @clock_speed.setter
+    def clock_speed(self, new_clock_speed):
         """sets the clock speed relative to real-time.
         :param: int, float or None.
         Time elapses twice as fast as real time, with a value of 2.0.
-        Time elapses ten times slower than real time with a value of 0.1"""
-        if not isinstance(clock_speed, (float, int, type(None))):
-            raise AttributeError("Cannot set clock speed using {}. Use int, float or None.".format(clock_speed))
-        self.clock_speed = clock_speed
-        # if clock_speed is None:
-        #     pass
-        # else:
-        #     self.offset = self.clock_speed * (self.now()-self.start_time)
-
-    def get_clock_speed(self):
-        """:returns the currently set clock speed."""
-        return self.clock_speed
+        Time elapses ten times slower than real time with a value of 0.1
+        If clock_speed == None, the simulated time will be set by either:
+        a. The active messages being exchanged. The clock doesn't tick whilst
+           negotiations are ongoing.
+        b. The alarm calls booked by the agents: If there are no negotiations,
+           time will jump to the next alarm, as this will set off another chain
+           of messages.
+        """
+        if new_clock_speed is None:
+            self._clock_speed = None
+            return
+        if isinstance(new_clock_speed, (int,float)):
+            self._clock_speed = new_clock_speed
+            return
+        raise ValueError("new clock speed must be integer or float, not {}".format(type(new_clock_speed)))
 
     def tick(self):
         """
         Ticks the clock one 'tick' further. This is disabled if the clock_speed is None,
         as the next timestep then is the next alarm.
         """
-        if self.clock_speed:
-            right_now = self.now()
-            dt = abs(max(self._last_timestamp, self._time) - right_now)  # uses max in case time has been set.
-            self.clock_frequency_measurements.append(dt)
-            self._last_timestamp = self._time = right_now
+        if self.clock_speed is None:
+            return
+
+        self._last_timestamp = right_now = self.time
+        dt = abs(max(self._last_timestamp, self._time) - right_now)  # uses max in case time has been set.
+        self.clock_frequency_measurements.append(dt)
 
     def set_alarm_clock(self, alarm_time, alarm_message=None):
         """ This function overrides the Agent-class's set_alarm_clock function
@@ -523,7 +590,7 @@ class Clock(Agent):
         :param msg: AlarmMessage
         """
         assert isinstance(msg, AlarmMessage)
-        self.alarms.append((msg.get_wake_up_time(), msg.get_uuid(), msg))
+        self.alarms.append((msg.wake_up_time, msg.uuid, msg))
         # The method above uses the decorate-sort-method, using time and uuids.
         self.alarms.sort()
 
@@ -535,14 +602,14 @@ class Clock(Agent):
         """
         if self.alarms:
             if self.clock_speed is None:
-                right_now = self.now()
+                right_now = self.time
             else:
-                right_now = self.now() + 1/self.get_clock_frequency()
+                right_now = self.time + 1/self.clock_frequency
 
             while self.alarms:
                 wake_up_time, uuid, msg = self.alarms[0]
                 if wake_up_time <= right_now:
-                    self.send(msg.get_wake_up_message())
+                    self.send(msg.wake_up_message)
                     self.alarms.pop(0)
                 else: # wake_up_time > right now
                     break  # then the first alarm is in the future and there
@@ -550,7 +617,8 @@ class Clock(Agent):
         else:
             pass  # there are no alarms.
 
-    def get_clock_frequency(self):
+    @property
+    def clock_frequency(self):
         """ A method for determining how many times the clock is checked
         per second. This is used by the alarm to assure that the alarm
         doesn't sleep past the wake-up-time.
@@ -564,6 +632,10 @@ class Clock(Agent):
             cfm = 10**-9
         return 1/cfm
 
+    @clock_frequency.setter
+    def clock_frequency(self, value):
+        raise ValueError("You can't set the clock_frequency, but you can set the clock_speed")
+
     def advance_time_to_next_timed_event(self, issue_stop_message_if_no_more_events=False):
         """
         :param issue_stop_message_if_no_more_events: boolean
@@ -573,7 +645,7 @@ class Clock(Agent):
         """
         if self.alarms:
             wake_up_time, uuid, msg = self.alarms[0]
-            self.set_time(wake_up_time)
+            self.time = wake_up_time
         else:
             if issue_stop_message_if_no_more_events:
                 self.logger("Scheduler requested clock to advance to next event,\nbut there are no more events.")
@@ -582,47 +654,32 @@ class Clock(Agent):
     def pause(self):
         """ A method used by the scheduler, to pause the clock """
         self._paused = True
-        self._time_when_paused = self.now()
+        self._time_when_paused = self.time
 
     def _resume_after_pause(self):
         """ A method used by the clock to reset the offset in time,
         when resuming after being paused. """
         self._paused = False
-        self.set_time(max(self._time, self._time_when_paused))
+        self.time = max(self._time, self._time_when_paused)
 
+    def is_waiting_for_the_alarm_clock(self):
+        """
+        :return: True if the clock only is waiting for alarms to trigger
+        """
+        if self.alarms:
+            if not self.messages:
+                return True
+        return False
 
-class SetTimeMessage(AgentMessage):
-    """
-    Message used to set the time on the clock after start.
-    """
-    def __init__(self, sender, receiver=None, new_time=0, clock_speed=1.000000):
+    def is_idle(self):
         """
-        :param sender: Sender's uuid
-        :param receiver: Reciever's uuid, or if set to None: all subscribers of this message type.
-        :param new_time: world_time as time in seconds since 1970-01-01T00:00:00.000000
-        :param clock_speed: value int or float
-        Time elapses twice as fast as realtime, with a value of 2.0.
-        Time elapses ten times slower than realtime with a value of 0.1
+        :return: True if idle, else False. 
         """
-        super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
-        if not isinstance(new_time, (float, int)):
-            raise AttributeError("Cannot set time using {}. Use int or float.".format(new_time))
-        if not isinstance(clock_speed, (float, int, type(None))):
-            raise AttributeError("Cannot set clock speed using {}. Use int or float or None.".format(clock_speed))
-        self.new_time = new_time
-        self.clock_speed = clock_speed
-
-    def get_new_time(self):
-        """ Returns the time that is supposed to be set.
-        :return: float, int: Time in seconds.
-        """
-        return self.new_time
-
-    def get_new_clock_speed(self):
-        """ Returns the clock speed.
-        :return: float, int: Clock speed (relative to real-time).
-        """
-        return self.clock_speed
+        if self.alarms:
+            return False
+        if self.messages:
+            return False
+        return True
 
 
 class AlarmMessage(AgentMessage):
@@ -642,26 +699,13 @@ class AlarmMessage(AgentMessage):
             alarm_message = AgentMessage(sender=sender, receiver=sender)
         self.wake_up_message = alarm_message
 
-    def get_wake_up_time(self):
-        """
-        :return: float, int: time to send the alarm message to the Agent intended to react.
-        """
-        return self.wake_up_time
-
-    def get_wake_up_message(self):
-        """ This method unpacks the message stored within
-        the WakeUpMessage
-        :return: AgentMessage: The message that wakes up the Agent.
-        """
-        return self.wake_up_message
-
 
 class MailMan(Agent):
     """
     The MailMan class receives mail from anyone controlled by the scheduler and
     relays it.
     """
-    def __init__(self, tolerated_redelivery_attempts=1000, message_monitor_horizon=100):
+    def __init__(self, message_monitor_horizon=10):
         super().__init__()
         self.keep_awake = True
         self.sentinel = Sentinel()
@@ -670,7 +714,6 @@ class MailMan(Agent):
         # The mailman's methods self.add and self.remove are not execute
         # by the mailman itself.
         self.mailing_lists = {}
-        self.tolerated_redelivery_attempts = tolerated_redelivery_attempts
         self.operations.update({SubscribeMessage.__name__: self.process_subscribe_message,
                                 UnSubscribeMessage.__name__: self.process_unsubscribe_message,
                                 GetSubscriptionTopicsMessage.__name__: self.get_subscription_topics,
@@ -690,7 +733,7 @@ class MailMan(Agent):
     def teardown(self):
         """ Tears the mailman down."""
         message_dump = []
-        while self.messages():
+        while self.messages:
             message_dump.append(str(self.receive()))
         if message_dump:
             print("dumping MailMan's message queue as part of teardown:")
@@ -702,17 +745,17 @@ class MailMan(Agent):
         """
         self.message_stats()
         self.inbox.append(self.sentinel)  # The best places to put a breakpoint...
-        while self.messages():
+        while self.messages:
             msg = self.receive()
             if msg is self.sentinel:
                 break
             if not isinstance(msg, AgentMessage):
-                self.logger(message="Discovered a faulty non-AgentMessage in the inbox. Message is dumped...",
+                self.logger(log_message="Discovered a faulty non-AgentMessage in the inbox. Message is dumped...",
                             log_level="WARN")
                 continue  # this dumps the message as the mailman only handles AgentMessages.
             if isinstance(msg, AgentMessage):
-                topic = msg.get_topic()
-                receiver = msg.get_receiver()
+                topic = msg.topic
+                receiver = msg.receiver
                 recipients = set()
 
                 if receiver in self.mailing_lists:
@@ -726,7 +769,7 @@ class MailMan(Agent):
                 elif topic in self.operations:  # broadcast receiver must be the mailman
                     self.to_mailman(msg)
                 else:
-                    self.logger(message="%s is not registered on a mailing list, so msg is saved the agent registers" % receiver, log_level="INFO")
+                    self.logger(log_message="%s is not registered on a mailing list, so msg is saved the agent registers" % receiver, log_level="INFO")
                     self.defer_delivery(msg, receiver)
 
     def send_to_recipients(self, msg, recipients):
@@ -744,7 +787,7 @@ class MailMan(Agent):
                     self.send(msg_copy, receiver=recipient)
         else:
             recipient = list(recipients)[0]
-            if recipient == self.get_uuid():  # the mailman might be on the subscriber list :-)
+            if recipient == self.uuid:  # the mailman might be on the subscriber list :-)
                 self.to_mailman(msg)
             else:
                 self.send(msg, receiver=recipient)
@@ -754,15 +797,16 @@ class MailMan(Agent):
         :param msg: AgentMessage
         :return: None
         """
-        topic = msg.get_topic()
+        assert isinstance(msg, AgentMessage)
+        topic = msg.topic
         if topic in self.operations:  # if the operation is known...
             operation = self.operations[topic]
             try:
                 operation(msg)
             except Exception as e:
-                self.logger(message="Mailman method '%s' broke with error %s" % (operation, e), log_level="WARNING")
+                self.logger(log_message="Mailman method '%s' broke with error %s" % (operation, e), log_level="WARNING")
         else:
-            self.logger(message="Mailman does not have a method for %s" % str(msg), log_level="WARNING")
+            self.logger(log_message="Mailman does not have a method for %s" % str(msg), log_level="WARNING")
 
     def process_subscribe_message(self, msg):
         """ subscribe lets the Agent react to SubscribeMessage and adds the subscriber.
@@ -775,19 +819,19 @@ class MailMan(Agent):
         Any agent may subscribe for the same topic many times (this is managed)
         """
         assert isinstance(msg, SubscribeMessage)
-        subscription_topic = msg.get_subscription_topic()
-        agent_uuid = msg.get_sender()
+        subscription_topic = msg.subscription_topic
+        agent_uuid = msg.sender
         if subscription_topic not in self.mailing_lists:
             self.mailing_lists[subscription_topic] = set()
-            self.logger(message="%s requesting topics added: %s" % (agent_uuid, subscription_topic), log_level="DEBUG")
+            self.logger(log_message="%s requesting topics added: %s" % (agent_uuid, subscription_topic), log_level="DEBUG")
         if agent_uuid not in self.mailing_lists[subscription_topic]:
             self.mailing_lists[subscription_topic].add(agent_uuid)
             if subscription_topic == agent_uuid:
-                self.logger(message="%s subscribing to messages for itself." % (msg.get_sender()), log_level="DEBUG")
+                self.logger(log_message="%s subscribing to messages for itself." % (msg.sender), log_level="DEBUG")
             else:
-                self.logger(message="%s subscribing to topic: %s" % (agent_uuid, subscription_topic), log_level="DEBUG")
+                self.logger(log_message="%s subscribing to topic: %s" % (agent_uuid, subscription_topic), log_level="DEBUG")
         else:
-            self.logger(message="%s already subscribing to topic: %s" % (agent_uuid, subscription_topic), log_level="DEBUG")
+            self.logger(log_message="%s already subscribing to topic: %s" % (agent_uuid, subscription_topic), log_level="DEBUG")
 
     def process_unsubscribe_message(self, msg):
         """ unsubscribes a subscriber from messages. Used by default during `_teardown` by all agents.
@@ -795,40 +839,40 @@ class MailMan(Agent):
         :return: None
         """
         assert isinstance(msg, UnSubscribeMessage)
-        subscription_topic = msg.get_subscription_topic()
-        agent_uuid = msg.get_sender()
+        subscription_topic = msg.subscription_topic
+        agent_uuid = msg.sender
         # remove subscriber from list
         if subscription_topic in self.mailing_lists:
             try:
                 self.mailing_lists[subscription_topic].remove(agent_uuid)
             except IndexError:
-                self.logger(message="%s never subscribed to topic: %s" % (agent_uuid, subscription_topic), log_level="DEBUG")
+                self.logger(log_message="%s never subscribed to topic: %s" % (agent_uuid, subscription_topic), log_level="DEBUG")
             except KeyError:
-                self.logger(message="%s already removed from topic: %s" % (agent_uuid, subscription_topic), log_level="DEBUG")
+                self.logger(log_message="%s already removed from topic: %s" % (agent_uuid, subscription_topic), log_level="DEBUG")
             if len(self.mailing_lists[subscription_topic]) == 0:
                 del self.mailing_lists[subscription_topic]
         else:
-            self.logger(message="%s never subscribed to topic: %s" % (agent_uuid, subscription_topic), log_level="DEBUG")
+            self.logger(log_message="%s never subscribed to topic: %s" % (agent_uuid, subscription_topic), log_level="DEBUG")
 
     def get_subscriber_list(self, msg):
         """ Returns the list of subscribers of a particular topic."""
         assert isinstance(msg, GetSubscribersMessage)
-        subscription_topic = msg.get_subscription_topic()
+        subscription_topic = msg.subscription_topic
         if subscription_topic in self.mailing_lists:
             subscribers = self.mailing_lists[subscription_topic].copy()
         else:
             subscribers = None
-        msg.set_receiver(msg.get_sender())
-        msg.set_sender(self)
-        msg.set_subscribers(subscribers)
+        msg.receiver = msg.sender
+        msg.sender = self
+        msg.subscribers = subscribers
         self.send(msg)
 
     def get_subscription_topics(self, msg):
         """ Returns the list of subscription topics"""
         assert isinstance(msg, GetSubscriptionTopicsMessage)
-        msg.set_subscription_topics([t for t in self.mailing_lists.keys()])
-        msg.set_receiver(msg.get_sender())
-        msg.set_sender(self)
+        msg.subscription_topics = [t for t in self.mailing_lists.keys()]
+        msg.receiver = msg.sender
+        msg.sender = self
         self.send(msg)
 
     def send(self, msg, receiver=None):
@@ -838,7 +882,7 @@ class MailMan(Agent):
 
         # 1. first we resolve who to send it to...
         if receiver is None:
-            receiver = msg.get_receiver()
+            receiver = msg.receiver
             if receiver is None:  # receiver is None, so it's a broadcast.
                 # If msg.get_receiver() also is None then something is wrong as
                 # the mailman should have assigned a receiver before attempting
@@ -850,16 +894,16 @@ class MailMan(Agent):
                 agent = self.agent_register[receiver]
                 agent.inbox.append(msg)
             except KeyError:
-                self.logger(message="Delivery deferred. Mailman.agents has no registry of %s." % (receiver), log_level="DEBUG")
+                self.logger(log_message="Delivery deferred. Mailman.agents has no registry of %s." % (receiver), log_level="DEBUG")
                 # There are two cases where delivery is deferred:
                 # a) Where the agent has not been added using Scheduler.add(agent). This is a usage error.
                 # b) Where the agent is in another processor (multiprocess) and hence cannot be reached.
                 self.defer_delivery(msg=msg, intended_receiver=receiver)
             except AttributeError:
-                self.logger(message="%s doesn't have an inbox. Message dumped." % (receiver), log_level="ERROR")
+                self.logger(log_message="%s doesn't have an inbox. Message dumped." % (receiver), log_level="ERROR")
         else:
             # 3. else we must defer delivery.
-            self.logger(message="Receiver {} doesn't exist (yet). Message delivery is deferred.".format(receiver), log_level="DEBUG")
+            self.logger(log_message="Receiver {} doesn't exist (yet). Message delivery is deferred.".format(receiver), log_level="DEBUG")
             self.defer_delivery(msg, receiver)
 
     def defer_delivery(self, msg, intended_receiver):
@@ -867,12 +911,12 @@ class MailMan(Agent):
         are not present, such as during multiprocessing, where agents are being
         updated on another compute core. See also `retry_deferred_delivery`"""
         assert isinstance(msg, AgentMessage), "Can't defer a non message..?!"
-        self.logger(message="Delivery deferred until agent registers %s" % msg.get_receiver(), log_level="DEBUG")
+        self.logger(log_message="Delivery deferred until agent registers %s" % msg.receiver, log_level="DEBUG")
         msg.failed_delivery_attempt()
-        if msg.delivery_attempts > self.tolerated_redelivery_attempts:
-            self.logger(message="Delivery has be re-attempted {} times without success. Message is dumped".format(self.tolerated_redelivery_attempts), log_level="INFO")
+        if msg.delivery_attempts_left == 0:
+            self.logger(log_message="Delivery has be re-attempted several times without success. Message is dumped", log_level="INFO")
         else:
-            self.logger(message="Message {} has been deferred {} times".format(msg.get_uuid(), msg.delivery_attempts), log_level="DEBUG")
+            self.logger(log_message="Message {} has been deferred {} times".format(msg.uuid, msg.delivery_attempts_left), log_level="DEBUG")
             envelope = DeferredDeliveryMessage(msg, intended_receiver=intended_receiver)
             self.inbox.append(envelope)
 
@@ -897,7 +941,7 @@ class MailMan(Agent):
         :return: None.
         """
         assert isinstance(msg, DeferredDeliveryMessage)
-        original_message, intended_receiver = msg.get_deferred_message(), msg.get_intended_receiver()
+        original_message, intended_receiver = msg.deferred_message, msg.intended_receiver
         if intended_receiver not in self.agent_register.keys():  # this is commonly numeric.
             # then the intended receiver might be a mailinglist.
             if intended_receiver in self.mailing_lists.keys():  # this is commonly a string or numeric.
@@ -912,15 +956,15 @@ class MailMan(Agent):
         :return: None
         """
         assert isinstance(agent, Agent)
-        agent_uuid = agent.get_uuid()
+        agent_uuid = agent.uuid
         self.agent_register[agent_uuid] = agent
 
         if agent_uuid not in self.mailing_lists:
-            self.logger(message="%s (agent) registered to mailing list..." % agent_uuid, log_level="DEBUG")
+            self.logger(log_message="%s (agent) registered to mailing list..." % agent_uuid, log_level="DEBUG")
         msg = SubscribeMessage(sender=agent, receiver=self, subscription_topic=agent_uuid)
         self.process_subscribe_message(msg)
         if agent.__class__.__name__ not in self.mailing_lists:
-            self.logger(message="%s (class) registered to mailing list..." % agent.__class__, log_level="DEBUG")
+            self.logger(log_message="%s (class) registered to mailing list..." % agent.__class__, log_level="DEBUG")
         msg = SubscribeMessage(sender=agent, receiver=self, subscription_topic=agent.__class__.__name__)
         self.process_subscribe_message(msg)
 
@@ -931,7 +975,7 @@ class MailMan(Agent):
         :return: None
         """
         assert isinstance(agent, Agent)
-        uuid = agent.get_uuid()
+        uuid = agent.uuid
         for topic, mailinglist in self.mailing_lists.items():
             if uuid in mailinglist:
                 msg = UnSubscribeMessage(sender=agent, receiver=None, subscription_topic=topic)
@@ -951,70 +995,24 @@ class MailMan(Agent):
 
     def is_idle(self):
         """ A method used to check if the mailman's job is done."""
+        if self.messages:
+            return False
         if self._message_counter_length < self._message_monitor_horizon:
             return False
         elif self._message_count_in_monitor_horizon > 0:
             return False
-        else:
-            return True
-
-
-class GetSubscribersMessage(AgentMessage):
-    """ A message class used to obtain the a list of subscribers."""
-    def __init__(self, sender, subscription_topic, receiver=None):
-        super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
-        assert str(subscription_topic)
-        self.subscription_topic = subscription_topic
-        self.subscribers = None
-
-    def set_subscribers(self, set_of_subscribers):
-        self.subscribers = set_of_subscribers
-
-    def get_subscribers(self):
-        return self.subscribers
-
-    def get_subscription_topic(self):
-        return self.subscription_topic
-
-
-class GetSubscriptionTopicsMessage(AgentMessage):
-    """ A message class used to obtain list of topics that can be subscribed to. """
-    def __init__(self, sender, receiver, subscription_topics=None):
-        super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
-        self.subscription_topics = subscription_topics
-
-    def set_subscription_topics(self, subscription_topics):
-        self.subscription_topics = subscription_topics
-
-    def get_subscription_topics(self):
-        return self.subscription_topics
-
-
-class DeferredDeliveryMessage(AgentMessage):
-    """ A message class used internally by the mailman to handle deferred
-    delivery of messages. """
-    def __init__(self, msg, intended_receiver):
-        assert isinstance(msg, AgentMessage)
-        super().__init__(sender=None, receiver=None, topic=self.__class__.__name__)
-        self.deferred_message = msg
-        self.intended_receiver = intended_receiver
-
-    def get_deferred_message(self):
-        return self.deferred_message
-
-    def get_intended_receiver(self):
-        return self.intended_receiver
+        return True
 
 
 class Scheduler(Agent):
     """ The scheduler that handles updates of all agents."""
-    def __init__(self, logfile=None,
+    def __init__(self, logfile=None, clock_speed=None, pause_if_idle=True,
                  number_of_multi_processors=multiprocessing.cpu_count(),
-                 pause_if_no_messages_for_n_iterations=100,
                  minimum_operating_frequency=1000):
         """
 
         :param logfile: A logfile (if available)
+        :clock_speed: None, float or int: the simulation clock speed. 
         :param number_of_multi_processors: int: the number of processing cores.
         Default uses `multiprocessing.cpu_count()`. Any other string is interpreted
          as "False"
@@ -1027,7 +1025,7 @@ class Scheduler(Agent):
         # init's self.inbox as a collections.deque() for various purposes
         assert isinstance(self.inbox, deque), "Scheduler can't work without a deque."
         assert isinstance(number_of_multi_processors, int)
-        assert isinstance(pause_if_no_messages_for_n_iterations, int)
+        assert isinstance(pause_if_idle, bool)
         assert isinstance(minimum_operating_frequency, (float, int))
         self.shutdown_initiated = False
 
@@ -1068,7 +1066,7 @@ class Scheduler(Agent):
             formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
             ch.setFormatter(formatter)
             self.log.addHandler(ch)
-        self.log.info("Scheduler is running with uuid: {}".format(self.get_uuid()))
+        self.log.info("Scheduler is running with uuid: {}".format(self.uuid))
 
         self.pending_tasks = 0  # used to keep track of how many agents there are,
         # when agents are being updated in other processors during multiprocessing.
@@ -1077,8 +1075,7 @@ class Scheduler(Agent):
         # messages seen in an update cycle, so that the scheduler can sleep if
         # none of the agents are active.
         self.pause = False
-        self.pause_if_idle = False
-        self._run_until_no_new_events = False
+        self.pause_if_idle = pause_if_idle
 
         self.operating_frequency = minimum_operating_frequency  # used to throttle
         # the sleep function if there is nothing to do.
@@ -1097,15 +1094,14 @@ class Scheduler(Agent):
 
         # finalize the setup.
         self.sentinel = Sentinel()
-        self.clock = Clock()
-        self.mailman = MailMan(message_monitor_horizon=pause_if_no_messages_for_n_iterations)
+        self.clock = Clock(clock_speed=clock_speed)
+        self.mailman = MailMan()
 
         self.mailman.add(self)  # the scheduler must add itself to the mailmans
         # register, otherwise the mailman can't add messages to the scheduler's inbox.
         self.add(self.clock)  # launch in __init__
         self.add(self.mailman)
-        msg = SubscribeMessage(sender=self, subscription_topic=LogMessage.__name__)
-        self.send(msg)
+        self.subscribe(LogMessage.__name__)
 
     def add(self, agent):
         """ Adds an agent to the scheduler
@@ -1119,12 +1115,14 @@ class Scheduler(Agent):
                 except Exception:
                     self.log.error("Agent could not be pickled: \n{}".format(str(agent)))
                     return
-        self.log.debug("Registering agent {} {}".format(agent.__class__.__name__, agent.get_uuid()))
+        self.log.debug("Registering agent {} {}".format(agent.__class__.__name__, agent.uuid))
         self.mailman.add(agent)  # self.agent_register[agent.get_uuid()] = agent
         self.agents.append(agent)
         if not agent.is_setup():
-            agent._setup()
+            agent.subscribe(agent.uuid)
+            agent.subscribe(self.__class__.__name__)
             agent.setup()
+            agent._is_setup = True
             self.send_and_receive(agent)
 
     def remove(self, agent):
@@ -1134,13 +1132,15 @@ class Scheduler(Agent):
         if not isinstance(agent, Agent):  # if the provided information is the uuid, then
             # we must first identify the agent object.
             for _agent in self.agents:
-                if _agent.get_uuid() == agent:
+                if _agent.uuid == agent:
                     agent = _agent
                     break
         if isinstance(agent, Agent):
-            self.log.debug("DeRegistering agent {}".format(agent.get_uuid()))
+            self.log.debug("DeRegistering agent {}".format(agent.uuid))
             if agent.is_setup():
-                agent._teardown()
+                agent.unsubscribe(agent.uuid)
+                agent.unsubscribe(agent.__class__.__name__)
+                self._is_setup = False
                 agent.teardown()
                 self.send_and_receive(agent)
             self.mailman.remove(agent)  # del self.agent_register[agent.get_uuid()]
@@ -1160,7 +1160,6 @@ class Scheduler(Agent):
                 try:
                     assert isinstance(agent, Agent)
                     if agent.is_setup():
-                        agent._teardown()
                         agent.teardown()
                         self.send_and_receive(agent)
                 except NotImplementedError:
@@ -1191,8 +1190,8 @@ class Scheduler(Agent):
         set_runtime(start_time=now()+6*60*60, speed=None)
         """
         assert start_time >= 0, "setting a new runspeed in the past doesn't make an sense"
-        stm = SetTimeMessage(sender=self, clock_speed=clock_speed)
-        trigger_msg = AlarmMessage(sender=self, alarm_time=self.clock.now() + start_time, alarm_message=stm)
+        stm = SetTimeAndClockSpeedMessage(sender=self, new_clock_speed=clock_speed)
+        trigger_msg = AlarmMessage(sender=self, alarm_time=self.clock.time + start_time, alarm_message=stm)
         self.clock.inbox.append(trigger_msg)
 
     def set_pause_time(self, pause_time):
@@ -1203,7 +1202,7 @@ class Scheduler(Agent):
         """
         assert pause_time > 0, "pausing before start time doesn't make any sense"
         pausemsg = PauseMessage(sender=self, receiver=self)
-        trigger_msg = AlarmMessage(sender=self, alarm_time=self.clock.now() + pause_time, alarm_message=pausemsg)
+        trigger_msg = AlarmMessage(sender=self, alarm_time=self.clock.time + pause_time, alarm_message=pausemsg)
         self.clock.inbox.append(trigger_msg)
 
     def set_stop_time(self, stop_time):
@@ -1217,40 +1216,47 @@ class Scheduler(Agent):
         """
         assert stop_time > 0, "stopping before start time doesn't make any sense."
         stopMsg = StopMessage(sender=self, receiver=self)
-        trigger_msg = AlarmMessage(sender=self, alarm_time=self.clock.now() + stop_time, alarm_message=stopMsg)
+        trigger_msg = AlarmMessage(sender=self, alarm_time=self.clock.time + stop_time, alarm_message=stopMsg)
         self.clock.inbox.append(trigger_msg)
 
-    def run(self, seconds=None, iterations=None, pause_if_idle=False, run_until_no_new_events=False):
-        """ The main operation of the Scheduler.
-        :param seconds: optional number of real-time seconds to run. If clock speed is not
-        1.00000, the time elapsed in the simulation will be factored by the clockspeed. See
-        clock.set_clock_speed for details.
-        :param iterations: If set to an abs(integer) > 0, then the scheduler will
+    def run(self, seconds='', iterations='', pause_if_idle='', clock_speed=''):
+        """ The main 'run' operation of the Scheduler.
+    
+        :param seconds: float, int, None: optional number of real-time seconds to run.
+        :param iterations: float, int, None: feature to let the scheduler run for 
+        N (`iterations`) updates before pausing. 
+        :param pause_if_idle: boolean: default=False: If no new messages are exchanged 
+        the scheduler's clock will tick along as any other real-time system. 
+        If pause_if_idle is set to True, the scheduler will pause once the message queue
+        is idle.
+        :param clock_speed: float, int or None: If clock speed is not 1.00000, 
+        the time elapsed in the simulation will be factored by the clockspeed.
+        If clock_speed is set to None, the simulation runs as fast as possible.
+        See clock.clock_speed for details.
+        
+        If set to an abs(integer) > 0, then the scheduler will
         at most update the abs(turns) number of times before exiting. Using iterations
         (turns) is favoured over attempts to use a timer as run time can differ on
         different machines.
-
+        
         Depending on which of 'seconds' or 'iterations' occurs first, the simulation
         will be paused.
         """
-        if seconds is not None:
-            if isinstance(seconds, int):
-                right_now = self.clock.now()
+        if clock_speed != '':
+            self.clock.clock_speed = clock_speed
+
+        if seconds != '':
+            if isinstance(seconds, (int,float)):
+                right_now = self.clock.time
                 pause_msg = PauseMessage(sender=self, receiver=self)
                 to_msg = AlarmMessage(sender=self, alarm_time=seconds + right_now, alarm_message=pause_msg)
                 self.send(to_msg)
 
-        if iterations is not None:
+        if iterations != '':
             assert isinstance(iterations, int), "iterations must an integer"
             self.iterations_to_halt = abs(iterations)
         else:
             self.iterations_to_halt = None
-
-        if run_until_no_new_events in (False, True):
-            self._run_until_no_new_events = run_until_no_new_events
-            if run_until_no_new_events:
-                self.pause_if_idle = True
-                pause_if_idle = True
 
         if pause_if_idle in (False, True):
             self.pause_if_idle = pause_if_idle
@@ -1281,7 +1287,7 @@ class Scheduler(Agent):
             agent = self.agents.popleft()  # the clock & sentinel will always be there...!
             if agent is self.sentinel:  # this makes the scheduler check it's own messages.
                 self.agents.append(self.sentinel)
-                self._set_time(self.clock.now())
+                self.time = self.clock.time
                 self.scheduler_update()
                 if self.pause:
                     self.log.debug("Pausing Scheduler, use 'run()' to continue. Use 'stop()' to shutdown remote processors.")
@@ -1289,9 +1295,9 @@ class Scheduler(Agent):
                 else:
                     continue
             assert isinstance(agent, Agent), "The scheduler can't run an update on a non-agent."
-            if agent.keep_awake or agent.messages():
+            if agent.keep_awake or agent.messages:
                 if agent is not self.clock:
-                    agent._set_time(self.clock.now())
+                    agent.time = self.clock.time
                 if agent is self.clock or agent is self.mailman:
                     self.update_agent(agent)
                 elif self.multiprocessing:
@@ -1346,10 +1352,10 @@ class Scheduler(Agent):
                     self.inbox.append(agent)
 
         # get agents in own inbox:
-        while self.messages():
+        while self.messages:
             msg = self.receive()
             if isinstance(msg, AgentMessage):
-                operation = self.operations.get(msg.get_topic())
+                operation = self.operations.get(msg.topic)
                 if operation is not None:
                     operation(msg)
                 else:
@@ -1366,26 +1372,26 @@ class Scheduler(Agent):
         for agent in self.agents_to_be_deleted:
             if agent in self.agents:
                 self.agents.remove(agent)
-                if agent.is_setup():
-                    agent._teardown()
-                    agent.teardown()
 
-        # check the clocks mode of operation:
-        if self.clock.clock_speed is None:
-            if not self.mailman.messages():
-                if self.pending_tasks == 0:
-                    if not self.clock.messages():
-                        self.clock.advance_time_to_next_timed_event(self._run_until_no_new_events)
+        # if the clockspeed is None, but alarms are pending and the mailman is idle,
+        # then a jump in time is appropriate:
+        if all([self.mailman.is_idle(),
+                self.clock.is_waiting_for_the_alarm_clock(),
+                self.clock.clock_speed is None,
+                self.pending_tasks == 0]):
+            self.clock.advance_time_to_next_timed_event(issue_stop_message_if_no_more_events=self.pause_if_idle)
 
-        # if the sum of the idle monitor is zero, and the setting
-        # `self.pause if idle` is True, then the scheduler should pause.
-        if self.pause_if_idle:
-            if not self.clock.alarms:
-                if self.mailman.is_idle():
-                    self.pause = True
+        # if the mailman and clock are idle, then the scheduler should pause.
+        if all([self.mailman.is_idle(),
+                self.clock.is_idle(),
+                self.pause_if_idle]):
+            self.pause = True
 
-        # if no new messages have been seen, then sleep for a moment.
-        if self.message_count_in_cycle == 0 and self.clock.clock_speed:
+        # if no new messages have been seen, then sleep for a moment as the
+        # scheduler either:
+        # a) Is running in real-time and is waiting for some external event.
+        # b) Is waiting for a coprocessor to finish work.
+        if self.clock.clock_speed and self.message_count_in_cycle == 0:
             time.sleep(1/self.operating_frequency)
         self.message_count_in_cycle = 0
 
@@ -1399,7 +1405,7 @@ class Scheduler(Agent):
 
         # These checks assures that the stop is intended for the scheduler and not some accidental broadcast.
         assert isinstance(msg, StopMessage)
-        assert msg.get_receiver() == self.get_uuid(), "The Scheduler received a StopMessage, but wasn't the intended receiver..!"
+        assert msg.receiver == self.uuid, "The Scheduler received a StopMessage, but wasn't the intended receiver..!"
 
         if self.multiprocessing:
             for p in self.processor_pool:
@@ -1422,7 +1428,7 @@ class Scheduler(Agent):
         assert isinstance(msg, StopConfirmationMessage)
         to_be_removed = []
         for p in self.processor_pool:
-            if p.name == msg.get_sender():
+            if p.name == msg.sender:
                 to_be_removed.append(p)
         for p in to_be_removed:
             self.processor_pool.remove(p)
@@ -1437,7 +1443,7 @@ class Scheduler(Agent):
         msg: PauseMessage
         """
         assert isinstance(msg, PauseMessage)
-        if msg.get_receiver() == self.get_uuid():
+        if msg.receiver == self.uuid:
             self.pause = True
 
     def add_agent_from_message(self, msg):
@@ -1446,7 +1452,8 @@ class Scheduler(Agent):
         :return: None
         """
         assert isinstance(msg, AddNewAgent)
-        agent = msg.get_new_agent()
+        agent = msg.agent
+        assert isinstance(agent, Agent)
         self.add(agent)
 
     def remove_agent_from_message(self, msg):
@@ -1455,7 +1462,8 @@ class Scheduler(Agent):
         :return: None
         """
         assert isinstance(msg, RemoveAgent)
-        agent = msg.get_agent_to_be_removed()
+        agent = msg.agent_to_be_removed
+        assert isinstance(agent, (int, Agent))
         self.remove(agent)
 
     def write_log_msg_to_logger(self, msg):
@@ -1464,27 +1472,22 @@ class Scheduler(Agent):
         :return: None
         """
         assert isinstance(msg, LogMessage)
-        level = logging._nameToLevel[msg.get_log_level()]
+        level = logging._nameToLevel[msg.log_level]
         assert isinstance(level, int)
-        self.log.log(level=level, msg=msg.get_log_message())
+        self.log.log(level=level, msg=msg.log_message)
 
 
 class AddNewAgent(AgentMessage):
-    def __init__(self, sender, agent, receiver=Scheduler.__name__):
+    def __init__(self, sender, agent, receiver=Scheduler.__class__.__name__):
         super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
+        assert isinstance(agent, Agent)
         self.agent = agent
-
-    def get_new_agent(self):
-        return self.agent
 
 
 class RemoveAgent(AgentMessage):
     def __init__(self, sender, agent_or_agent_uuid, receiver=Scheduler.__name__):
         super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
         self.agent_to_be_removed = agent_or_agent_uuid
-
-    def get_agent_to_be_removed(self):
-        return self.agent_to_be_removed
 
 
 class StopConfirmationMessage(AgentMessage):
@@ -1508,15 +1511,15 @@ class Processor(multiprocessing.Process):  # class Processor(multiprocessing.Pro
         self._quit = False
 
     def logger(self, message, log_level='NOTSET'):
-        msg = LogMessage(sender=self.name, receiver=None, message=message, log_level=log_level)
+        msg = LogMessage(sender=self.name, receiver=None, log_message=message, log_level=log_level)
         self.result_queue.put(msg)
 
     def stop(self, msg):
         assert isinstance(msg, StopMessage)
-        if msg.get_receiver() == self.name:
-            print("Process {} got the stop signal..".format(self.name))
+        if msg.receiver == self.name:
+            # print("Process {} got the stop signal..".format(self.name), end='', flush=True)
             self._quit = True
-            stop_response_msg = StopConfirmationMessage(sender=self.name, receiver=msg.get_sender())
+            stop_response_msg = StopConfirmationMessage(sender=self.name, receiver=msg.sender)
             self.result_queue.put_nowait(stop_response_msg)
             self.exit.set()
         else:  # if the message is not for me, then I merely put it back.
@@ -1543,8 +1546,7 @@ class Processor(multiprocessing.Process):  # class Processor(multiprocessing.Pro
 
     def run(self):
         if not self.is_setup:
-            self.setup()
-            # the processor doesn't have the private self._setup() method that agents have.
+            self.setup()  # the processor doesn't have the private self._setup() method that agents have.
         if not self._quit:
             try:
                 self.update()
@@ -1570,7 +1572,6 @@ class Processor(multiprocessing.Process):  # class Processor(multiprocessing.Pro
             if isinstance(task, AgentMessage):
                 self.inbox.append(task)
             elif isinstance(task, Agent):
-                # print("Got agent {}...\n running it...".format(task.get_uuid()))
                 task.run()  # this runs the Agent's update method.
                 self.result_queue.put_nowait(task)  # this returns the Agent to the scheduler, with messages in the Agents outbox.
             else:
@@ -1581,7 +1582,7 @@ class Processor(multiprocessing.Process):  # class Processor(multiprocessing.Pro
                 msg = self.receive()
                 self.logger(message="Got: {}".format(str(msg)), log_level="INFO")
                 assert isinstance(msg, AgentMessage)
-                operation = self.operations.get(msg.get_topic())
+                operation = self.operations.get(msg.topic)
                 if operation is not None:
                     operation(msg)
                 else:
