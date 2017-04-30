@@ -1,8 +1,13 @@
-from outscale.core import *
+import time
+import logging
+from outscale.core import Agent, AgentMessage, AddNewAgent, SubscribeMessage, Scheduler
+from collections import deque
 from operator import attrgetter
-from random import shuffle
 
-__author__ = "bjorn madsen"
+__author__ = ["bjorn.h.madsen@gmail.com",
+              "bjorn.madsen@operationsresearchgroup.com",
+              "bjorn.madsen@dematic.com"]
+
 __description__ = """
     INTRODUCTION
     This demo illustrates how to solve the assignment problem using
@@ -144,14 +149,14 @@ class BidDatabase(Agent):
                 self.send(msg)
 
     def update(self):
-        while self.messages():
+        while self.messages:
             msg = self.receive()
-            operation = self.operations.get(msg.get_topic())
+            operation = self.operations.get(msg.topic)
             if operation is not None:
                 operation(msg)
             else:
                 self.logger("%s %s: don't know what to do with: %s" %
-                            (self.__class__.__name__, str(self.get_uuid())[-6:], str(msg)),
+                            (self.__class__.__name__, str(self.uuid)[-6:], str(msg)),
                             log_level="DEBUG")
 
     def teardown(self):
@@ -172,9 +177,9 @@ class BidDatabase(Agent):
         :return: None
         """
         assert isinstance(msg, AddNewAgent)
-        agent = msg.get_new_agent()
+        agent = msg.agent
 
-        _uuid = agent.get_uuid()
+        _uuid = agent.uuid
         _type = agent.__class__.__name__
         _name = agent.get_name()
 
@@ -184,7 +189,7 @@ class BidDatabase(Agent):
 
     def lookup_price(self, msg):
         assert isinstance(msg, GetPrice)
-        sender = msg.get_sender()
+        sender = msg.sender
         partner_id = msg.get_partner_id()
         try:
             trader_type, name = self.agent_register[sender]
@@ -235,14 +240,14 @@ class AgentFactory(Agent):
         self.send(sub_msg)
 
     def update(self):
-        while self.messages():
+        while self.messages:
             msg = self.receive()
-            operation = self.operations.get(msg.get_topic())
+            operation = self.operations.get(msg.topic)
             if operation is not None:
                 operation(msg)
             else:
                 self.logger("%s %s: don't know what to do with: %s" %
-                            (self.__class__.__name__, str(self.get_uuid())[-6:], str(msg)),
+                            (self.__class__.__name__, str(self.uuid)[-6:], str(msg)),
                             log_level="DEBUG")
 
     def teardown(self):
@@ -255,7 +260,7 @@ class AgentFactory(Agent):
         agent = agent_class(**kwargs)  # make the agent with variable length init arguments
         msg = AddNewAgent(sender=self, agent=agent)  # send the agent to the scheduler
         self.send(msg)
-        # The scheduler makes sure, thatalways attaches agents to the mainloop.
+        # The scheduler makes sure, that agents always are attached to the mainloop.
 
 # -------- Trader messages ---------
 
@@ -399,15 +404,15 @@ class Trader(Agent):
             raise NotImplementedError("Trader must run as either Seller or Buyer. The class Trader can not on its own.")
 
     def update(self):
-        if self.messages():
+        if self.messages:
             # 1) first, the priority inbox is implemented to take commit messages prior to any other message.
             new_messages = True
             priority_topics = {Commit.__name__}  # just this one for now...
             priority_messages = deque()
             normal_messages = deque()
-            while self.messages():
+            while self.messages:
                 msg = self.receive()
-                if msg.get_topic() in priority_topics:
+                if msg.topic in priority_topics:
                     priority_messages.append(msg)
                 else:
                     normal_messages.append(msg)
@@ -417,11 +422,11 @@ class Trader(Agent):
             # 2) Okay - if there are any priority messages they'll be up front.
             while len(messages) > 0:        # equivalent to: while self.messages():
                 msg = messages.popleft()    # equivalent to:     msg = self.receive()
-                operation = self.operations.get(msg.get_topic())
+                operation = self.operations.get(msg.topic)
                 if operation is not None:
                     operation(msg)
                 else:
-                    self.logger("%s %s: don't know what to do with: %s" % (self.__class__.__name__, str(self.get_uuid())[-6:], str(msg)),
+                    self.logger("%s %s: don't know what to do with: %s" % (self.__class__.__name__, str(self.uuid)[-6:], str(msg)),
                                 log_level="DEBUG")
 
             # 3) Now as all information has been received, the agent evaluates the information
@@ -433,16 +438,16 @@ class Trader(Agent):
         pass
 
     def log_opportunity(self, msg):
-        opportunity = self.get_opportunity(msg.get_sender())  #NB: Can be None.
+        opportunity = self.get_opportunity(msg.sender)  #NB: Can be None.
 
         if isinstance(msg, Advertisement):  # seller advertises, buyer receives advertisement. Buyer then responds...
-            msg = RequestForQuotation(sender=self, receiver=msg.get_sender(), max_price=self.fixed_price)
+            msg = RequestForQuotation(sender=self, receiver=msg.sender, max_price=self.fixed_price)
             self.send(msg)
         elif isinstance(msg, RequestForQuotation):  # seller gets an RFQ, logs it and gets the price.
             if opportunity is None:
-                opportunity = Opportunity(partner_id=msg.get_sender(), price=None, time=self.now())
+                opportunity = Opportunity(partner_id=msg.sender, price=None, time=self.time)
                 self.opportunities.append(opportunity)
-                self.get_price(msg.get_sender())
+                self.get_price(msg.sender)
             else:  # it's a duplicate request
                 pass
         elif isinstance(msg, SetPrice):   # seller gets the price, updates the opportunity and sends offer to buyer
@@ -463,9 +468,9 @@ class Trader(Agent):
                     self.send(msg)
         elif isinstance(msg, OfferDocument):  # buyer receives the offer document...
             if opportunity:  # if the opportunity exists, then it's a price update.
-                opportunity.price, opportunity.time = msg.get_bid_price(), self.now()
+                opportunity.price, opportunity.time = msg.get_bid_price(), self.time
             else:  # then it's a new opportunity.
-                opportunity = Opportunity(price=msg.get_bid_price(), partner_id=msg.get_sender(), time=self.now())
+                opportunity = Opportunity(price=msg.get_bid_price(), partner_id=msg.sender, time=self.time)
                 self.opportunities.append(opportunity)
             # buyer can now choose to send the acceptance if the offer document contains the best offer.
         elif isinstance(msg, Acceptance):  # seller get's buyers acceptance to the offer document
@@ -478,7 +483,7 @@ class Trader(Agent):
         elif isinstance(msg, Recall):
             opportunity.contract_exchanged = False
             opportunity.contract_confirmed = False
-            if self.in_contract_with == msg.get_sender():
+            if self.in_contract_with == msg.sender:
                 self.in_contract_with = None
         else:
             raise NotImplementedError("The following message was received as an opportunity,\
@@ -501,7 +506,7 @@ class Trader(Agent):
 
     # agent reactions upon receipt of messages
     def advertisement(self, msg):
-        msg = RequestForQuotation(sender=self, receiver=msg.get_sender(), max_price=self.fixed_price)
+        msg = RequestForQuotation(sender=self, receiver=msg.sender, max_price=self.fixed_price)
         self.send(msg)
 
     def get_price(self, partner_id):
@@ -684,7 +689,7 @@ def test02():
     f.inbox.append(msg)
     f.update()
     agent_msg = f.outbox.popleft()
-    agent = agent_msg.get_new_agent()
+    agent = agent_msg.agent
     assert isinstance(agent, AgentFactory), \
         "we should have a second agent factory that was created by the first agent factory."
 
@@ -716,7 +721,8 @@ def demo(sellers=[], buyers=[], time_limit=True):
 
     print("Contracts at end:")
     for k,v in contracts.items():
-        print("{}: {}".format(k,v))
+        print("{}: {}".format(k,v), flush=True)
+    assert len(contracts) > 0, "no contracts? That can't be true"
     return contracts
 
 
