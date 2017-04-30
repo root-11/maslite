@@ -62,11 +62,8 @@ class GetPrice(AgentMessage):
     which is hidden to the seller.
     """
     def __init__(self, sender, partner_id):
-        super().__init__(sender=sender, receiver=BidDatabase.__name__, topic=self.__class__.__name__)
+        super().__init__(sender=sender, receiver=BidDatabase.__name__)
         self.partner_id = partner_id
-
-    def get_partner_id(self):
-        return self.partner_id
 
 
 class SetPrice(AgentMessage):
@@ -79,20 +76,12 @@ class SetPrice(AgentMessage):
         self.price = price
         self.partner_id = partner_id
 
-    def get_price(self):
-        return self.price
-
-    def get_partner_id(self):
-        return self.partner_id
-
 
 class NewAgentRegister(AgentMessage):
     def __init__(self, sender, receiver,agent_register):
         super().__init__(sender=sender, receiver=receiver)
         self.agent_register = agent_register
 
-    def get_agent_register(self):
-        return self.agent_register
 
 
 class BidDatabase(Agent):
@@ -190,7 +179,7 @@ class BidDatabase(Agent):
     def lookup_price(self, msg):
         assert isinstance(msg, GetPrice)
         sender = msg.sender
-        partner_id = msg.get_partner_id()
+        partner_id = msg.partner_id
         try:
             trader_type, name = self.agent_register[sender]
             partner_type, partner_index = self.agent_register[partner_id]
@@ -212,7 +201,7 @@ class BidDatabase(Agent):
 
 class MakeAgent(AgentMessage):
     def __init__(self, sender, receiver, agent_to_be_created, **kwargs):
-        super().__init__(sender=sender, receiver=AgentFactory.__name__, topic=self.__class__.__name__)
+        super().__init__(sender=sender, receiver=AgentFactory.__name__)
         self.agent_to_be_created = agent_to_be_created
         self.agent_init_args = kwargs
 
@@ -267,50 +256,44 @@ class AgentFactory(Agent):
 
 class Advertisement(AgentMessage):
     def __init__(self, sender, receiver=None):
-        super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
+        super().__init__(sender=sender, receiver=receiver)
 
 
 class RequestForQuotation(AgentMessage):
     def __init__(self, sender, max_price, receiver=None):
-        super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
+        super().__init__(sender=sender, receiver=receiver)
         self.max_price = max_price
-
-    def get_max_price(self):
-        return self.max_price
 
 
 class OfferDocument(AgentMessage):
     def __init__(self, sender, receiver, bid_price):
-        super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
+        super().__init__(sender=sender, receiver=receiver)
         self.bid_price = bid_price
-
-    def get_bid_price(self):
-        return self.bid_price
 
 
 class Acceptance(AgentMessage):  # bid acceptance
     def __init__(self, sender, receiver):
-        super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
+        super().__init__(sender=sender, receiver=receiver)
 
 
 class Contract(AgentMessage):
     def __init__(self, sender, receiver):
-        super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
+        super().__init__(sender=sender, receiver=receiver)
 
 
 class ContractConfirmation(AgentMessage):
     def __init__(self, sender, receiver):
-        super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
+        super().__init__(sender=sender, receiver=receiver)
 
 
 class Recall(AgentMessage):  # contract recall
     def __init__(self, sender, receiver):
-        super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
+        super().__init__(sender=sender, receiver=receiver)
 
 
 class Commit(AgentMessage):
     def __init__(self, sender, receiver):
-        super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
+        super().__init__(sender=sender, receiver=receiver)
 
 
 class Opportunity(object):
@@ -451,26 +434,26 @@ class Trader(Agent):
             else:  # it's a duplicate request
                 pass
         elif isinstance(msg, SetPrice):   # seller gets the price, updates the opportunity and sends offer to buyer
-            opportunity = self.get_opportunity(msg.get_partner_id())
+            opportunity = self.get_opportunity(msg.partner_id)
             if opportunity.price is None:
-                if msg.get_price() is None:
+                if msg.price is None:
                     send_offer_doc = False  # then it is a no-bid. No need to do anything.
                 else:
-                    opportunity.price = msg.get_price()
+                    opportunity.price = msg.price
                     send_offer_doc = True
             else:
-                if opportunity.price == msg.get_price():  # then it's a duplicate caused by async timing.
+                if opportunity.price == msg.price:  # then it's a duplicate caused by async timing.
                     send_offer_doc = False
                 else:  # it's a price update.
                     send_offer_doc = True
             if send_offer_doc:
-                    msg = OfferDocument(sender=self, receiver=msg.get_partner_id(), bid_price=msg.get_price())
+                    msg = OfferDocument(sender=self, receiver=msg.partner_id, bid_price=msg.price)
                     self.send(msg)
         elif isinstance(msg, OfferDocument):  # buyer receives the offer document...
             if opportunity:  # if the opportunity exists, then it's a price update.
-                opportunity.price, opportunity.time = msg.get_bid_price(), self.time
+                opportunity.price, opportunity.time = msg.bid_price, self.time
             else:  # then it's a new opportunity.
-                opportunity = Opportunity(price=msg.get_bid_price(), partner_id=msg.sender, time=self.time)
+                opportunity = Opportunity(price=msg.bid_price, partner_id=msg.sender, time=self.time)
                 self.opportunities.append(opportunity)
             # buyer can now choose to send the acceptance if the offer document contains the best offer.
         elif isinstance(msg, Acceptance):  # seller get's buyers acceptance to the offer document
@@ -486,7 +469,7 @@ class Trader(Agent):
             if self.in_contract_with == msg.sender:
                 self.in_contract_with = None
         else:
-            raise NotImplementedError("The following message was received as an opportunity, but no method is in place to handle it:\n{}".format(str(msg)))
+            raise NotImplementedError("The following message was received as an opportunity,\n but no method is in place to handle it:\n{}".format(str(msg)))
 
     def sort_opportunities(self):
         raise NotImplementedError("The subclasses Buyer & Seller must implement the method: sort_opportunities.")
