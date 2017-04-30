@@ -34,6 +34,6 @@ See outscale_demos
 """
 
 __author__    = ['bjorn.madsen@operationsresearchgroup.com', 'bjorn.madsen@dematic.com']
-__version__   = '2017.1'
-__copyright__ = '2016'
+__version__   = '2017.5'
+__copyright__ = '2016,2017'
 __license__   = 'MIT License'
