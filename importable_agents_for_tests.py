@@ -11,13 +11,13 @@ class TestAgent(Agent):
 
     def update(self):
         print("TestAgent running 'update'")
-        while self.messages():
+        while self.messages:
             msg = self.receive()
-            operation = self.operations.get(msg.get_topic())
+            operation = self.operations.get(msg.topic)
             if operation is not None:
                 operation(msg)
             else:
-                self.logger("%s: don't know what to do with: %s" % (self.get_uuid(), str(msg)))
+                self.logger("%s: don't know what to do with: %s" % (self.uuid, str(msg)))
 
     def teardown(self):
         print("TestAgent running 'teardown'")
@@ -46,7 +46,7 @@ class WorkIntensiveAgent(Agent):
             j += i
         if log:
             msg = LogMessage(sender=self, receiver=None, log_level="DEBUG",
-                             message="Updating {}-{}: Update no: {}".format(
+                             log_message="Updating {}-{}: Update no: {}".format(
                                  self.__class__.__name__, self.name, self.total_updates))
             self.send(msg)
         self.total_updates += 1
