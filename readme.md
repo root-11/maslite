@@ -39,13 +39,13 @@ The user can thereby create an agent using just:
             self.operations.update({HelloMessage.__name__: self.hello})
         
         def update(self):
-            while self.messages():
+            while self.messages:
                 msg = self.receive()
-                operation = self.operations.get(msg.get_topic())
+                operation = self.operations.get(msg.topic))
                 if operation is not None:
                     operation(msg)
                 else:
-                    self.logger.debug("%s: don't know what to do with: %s" % (self.get_uuid(), str(msg)))            
+                    self.logger.debug("%s: don't know what to do with: %s" % (self.uuid), str(msg)))
                     
         def hello(self, msg)
             print(msg)
@@ -81,9 +81,9 @@ others:
     
         def update(self):
             # 1. Empty the inbox and sort the messages using the topic:
-            while self.messages():
+            while self.messages:
                 msg = self.receive()
-                if msg.get_topic() in self.priority_topics:
+                if msg.topic in self.priority_topics:
                     self.priority_messages.append(msg)
                 else:
                     self.normal_messages.append(msg)
@@ -95,7 +95,7 @@ others:
             # 3. Next we process them as usual:
             while len(self.priority_messages) > 0:
                 msg = self.priority_messages.popleft()
-                operation = self.operations.get(msg.get_topic())
+                operation = self.operations.get(msg.topic)
                 if operation is not None:
                     operation(msg)
                 else:
@@ -149,12 +149,10 @@ user of Outscale.
             # register topics with the mailman..!
             # naive:
             for topic in self.operations.keys():
-                msg = SubscribeMessage(sender=self, subscription_topic=topic)
-                self.send(msg)
+                self.subscribe(topic)
             # selective
             for topic in ["topic x","topic y","topic ..."]:
-                msg = SubscribeMessage(sender=self, subscription_topic=topic)
-                self.send(msg)
+                self.subscribe(topic)
         
         def teardown(self):
             # add own teardown operations here.
@@ -164,11 +162,11 @@ user of Outscale.
             self.action_before_processing_messages()
         
             # read the messages
-            while self.messages():
+            while self.messages:
                 msg = self.receive()
                 
                 # react immediately to some messages:
-                operation = self.operations.get(msg.get_topic())
+                operation = self.operations.get(msg.topic)
                 if operation is not None:
                     operation(msg)
             
@@ -189,7 +187,7 @@ user of Outscale.
         
         def x(msg):
             # read msg and send a response
-            from_ = msg.get_sender()
+            from_ = msg.sender
             response = SomeMessage(sender=self, receiver=from_) 
             self.send(response)
         
@@ -288,46 +286,10 @@ holding that UUID. If anyone other agent is tracking that UUID, by subscribing t
 it, then the tracking agent will receive a `deepcopy` of the message, and not the 
 original. 
 
-* To get the UUID of the sender the method `msg.get_sender()` is available.
+* To get the UUID of the sender the method `msg.sender` is available.
 
-* To subscribe/unsubscribe to messages the agents should use the `SubscribeMessage` 
-that are importable from `outscale.core`: 
-
-
-    class SubscribeMessage(AgentMessage):
-        def __init__(self, sender, subscription_topic, receiver=None):
-            assert isinstance(subscription_topic, (int, float, str)), "A subscription topic must be int, float or str."
-            super().__init__(sender=sender, receiver=receiver, topic=self.__class__.__name__)
-            self.subscription_topic = subscription_topic
-    
-        def get_subscription_topic(self):
-            return self.subscription_topic
-
-The attentive reader will notice the variable `subscription_topic` which indicates
-which topic is being subscribed to. The topic itself (`self.__class__.__name__`) 
-remains for the message's class on its own, so that the scheduler's mailman can 
-handle it without the user having to worry about the underlying mechanics.
-
-All agents have a "private" `_setup` method which assures that they will receive messages
-that are designated to themselves.
-
-    def _setup(self):
-        """Private setup method that assure that the Agent is registered properly."""
-        msg = SubscribeMessage(sender=self, subscription_topic=self.get_uuid())
-        self.send(msg=msg)
-        msg = SubscribeMessage(sender=self, subscription_topic=self.__class__.__name__)
-        self.send(msg=msg)
-        self._is_setup = True
-
-The same applies to teardown:
-
-    def _teardown(self):
-        """ Private teardown method that assures that the Agent is de-registered properly."""
-        msg = UnSubscribeMessage(sender=self, subscription_topic=self.get_uuid())
-        self.send(msg=msg)
-        msg = UnSubscribeMessage(sender=self, subscription_topic=self.__class__.__name__)
-        self.send(msg=msg)
-        self._is_setup = False
+* To subscribe/unsubscribe to messages the agents should use the `subscribe`
+function directly.
 
 These methods are run when the agent is added (`setup`) to, or removed from (`teardown`), the 
 scheduler. The internal operation of the agents `run` method guarantees this:
@@ -335,18 +297,14 @@ scheduler. The internal operation of the agents `run` method guarantees this:
     def run(self):
         """ The main operation of the Agent. """
         if not self.is_setup():
-            self._setup()
             self.setup()
         if not self._quit:
             self.update()
         if self._quit:
             self.teardown()
-            self._teardown()
-        else:
-            pass
 
 The can extend the setup methods either by writing their own `self.setup`-method 
-(_recommended approach_) or by overriding 'self._setup' (_not recommended_).
+(_recommended approach_).
 
 
 ### How to load data from a database connection 
@@ -359,7 +317,7 @@ state during `setup` and store it during `teardown` from some database.
 It is not necessary to let the scheduler know where the database is. 
 The agents can keep track of this themselves. 
 
-Though the user might find it attractice to use  `get_uuid()` to identify, 
+Though the user might find it attractice to use  `uuid` to identify,
 a particular `Agent` the user should keep 
 in mind that the UUID is unique with __every__ creation and destruction 
 of the agent. To expect or rely on the UUID to be persistent would lead 
@@ -411,7 +369,7 @@ Step 3. run the scheduler (nothing happens here)
     2017-02-11 15:09:20,120 - DEBUG - Pausing Scheduler, use 'run()' to continue. Use 'stop()' to shutdown remote processors.
 
 Other methods such as `s.run(seconds=None, iterations=None, 
-pause_if_idle=False, run_until_no_new_events=False)` can be applied as the user,
+pause_if_idle=False)` can be applied as the user,
 finds it suitable.
 
 Step 4. call the schedulers `stop` method to gracefully execute the `teardown` method
@@ -471,14 +429,14 @@ The clock is set using the api calls to the clock:
     2017-02-11 15:15:00,197 - DEBUG - Registering agent MailMan 108593288939288121173991719827939198422
     >>> s.now()
     0
-    >>> s.clock.set_time(1000)
+    >>> s.clock.time = 1000
     >>> s.now()
     1000
     >>> s.run(seconds=5)
     2017-02-11 15:16:49,395 - DEBUG - Pausing Scheduler, use 'run()' to continue. Use 'stop()' to shutdown remote processors.
     >>> s.now()
     1005
-    >>> s.clock.set_clock_speed(200)
+    >>> s.clock.clock_speed = 200
     >>> s.now()
     1005
     >>> s.run(seconds=5)
@@ -490,18 +448,18 @@ The clock is set using the api calls to the clock:
     
 
 In the calls (above) the scheduler first sets the time to `1000` (whatever that is).
-using `s.clock.set_time`. Next it sets the clock speed using `s.clock.set_clock_speed`
+using `s.clock.time`. Next it sets the clock speed using `s.clock.clock_speed`
 to 200 times real-time
 
 
-1. `clock.set_time(time in seconds)`. Typically time is set to time since 1970-01-01T00:00:00.000000 - the UNIX epoch - using `time.time()`
-2. `clock.set_clock_speed(value=1.000000)` 
+1. `clock.time = `__time in seconds__. Typically time is set to time since 1970-01-01T00:00:00.000000 - the UNIX epoch - using `time.time()`
+2. `clock.clock_speed = 1.000000`
 
 If the clock is set to run with `clock.clock_speed = None`, the scheduler
 will ask the clock to progress in jumps, so which behaves like follows: (pseudo code):
 
     if Clock.clock_speed is None:
-        if not mailman.messages():
+        if not mailman.messages:
             if self.pending_tasks() == 0:
                 Ask clock to set time to the time of the next event.
             else: wait for multiprocessor to return computed agent.
@@ -516,6 +474,11 @@ scheduler should be primed with messages:
 3. set the clock to 1x (real-time) speed 3 hours into the simulation: `set_runtime(start_time=now()+3*60*60, speed=1)` This will take 1 hour in real time.
 4. set clock to 10x speed 4 hour into the simulation: `set_runtime(start_time=now()+4*60*60, speed=10)`
 5. set the clock to 'None' to run as fast as possible for the rest of the simulation: `set_runtime(start_time=now()+6*60*60, speed=None)`
+
+Note: The clock_speed can be set as an argument in the schedulers `run` function:
+
+    Scheduler.run(seconds=None, iterations=None, pause_if_idle=False,
+                  clock_speed=1.0)
 
 ...
 
