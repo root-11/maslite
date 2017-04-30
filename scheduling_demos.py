@@ -116,9 +116,9 @@ class Machine(Agent):
         pass
 
     def update(self):
-        while self.messages():
+        while self.messages:
             msg = self.receive()
-            operation = self.operations.get(msg.get_topic(), None)
+            operation = self.operations.get(msg.topic, None)
             if operation is not None:
                 operation(msg)
 
@@ -126,11 +126,11 @@ class Machine(Agent):
 
     def set_customer(self, agent):
         assert isinstance(agent, Agent)
-        self.customer = agent.get_uuid()
+        self.customer = agent.uuid
 
     def set_supplier(self, agent):
         assert isinstance(agent, Agent)
-        self.supplier = agent.get_uuid()
+        self.supplier = agent.uuid
 
     def update_finish_time(self):
         """
@@ -160,7 +160,7 @@ class Machine(Agent):
                       start_time=None,
                       finish_time=None,
                       quantity=qty,
-                      customer=msg.get_sender())
+                      customer=msg.sender)
             self.jobs.append(job)
 
         # if it's a brand new schedule, then we'll have to update sort the jobs first.
@@ -297,15 +297,15 @@ class StockAgent(Agent):
         pass
 
     def update(self):
-        while self.messages():
+        while self.messages:
             msg = self.receive()
-            operation = self.operations.get(msg.get_topic(), None)
+            operation = self.operations.get(msg.topic, None)
             if operation is not None:
                 operation(msg)
 
     def set_customer(self, agent):
         assert isinstance(agent, Agent)
-        self.customer = agent.get_uuid()
+        self.customer = agent.uuid
 
     def process_order(self, msg):
         assert isinstance(msg, Order)
@@ -346,7 +346,16 @@ def test01():
     # Add m1 and m2 to the scheduler.
     for agent in [m1,m2,stock_agent]:
         s.add(agent)
-    s.run(run_until_no_new_events=True)
+    s.run(pause_if_idle=True)
+
+    check_sequence = ["A", "E", "B", "D", "G", "F", "C"]
+    try:
+        for idx, job in enumerate(m2.jobs):
+            assert isinstance(job, Job)
+            assert job.order_sku == check_sequence[idx]
+    except AssertionError:
+        raise AssertionError("Expected the final sequence as: {}\n but got: {}".format(check_sequence, [job.order_sku for job in m2.jobs]))
+
     s.stop()
 
 
