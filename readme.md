@@ -54,7 +54,7 @@ The user can thereby create an agent using just:
 That simple!
 
 The dictionary `self.operations` which is inherited from the `Agent`-class
-is updated with `{HelloMessage.__class__: self.hello}`. `self.operations` thereby acts 
+is updated with `{HelloMessage.__name__: self.hello}`. `self.operations` thereby acts 
 as a pointer for when a `HelloMessage` arrives, so when the agents 
 update function is called, it will get the topic from the message's and 
 point to the function `self.hello`, where `self.hello` in this simple
