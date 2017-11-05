@@ -8,7 +8,7 @@ from outscale.core import SetTimeAndClockSpeedMessage, StartMessage, StopMessage
 from outscale.core import SubscribeMessage, UnSubscribeMessage, GetSubscribersMessage
 from outscale.core import GetSubscriptionTopicsMessage, Clock, MailMan, Scheduler
 from outscale.core import AddNewAgent, RemoveAgent
-from outscale_tests.importable_agents_for_tests import WorkIntensiveAgent, TestAgent
+from tests.importable_agents_for_tests import WorkIntensiveAgent, TestAgent
 
 LOG_LEVEL = logging.INFO
 

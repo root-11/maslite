@@ -33,7 +33,7 @@ See outscale_demos
 
 """
 
-__author__    = ['bjorn.madsen@operationsresearchgroup.com', 'bjorn.madsen@dematic.com']
-__version__   = '2017.5'
+__author__    = ['bjorn.madsen@operationsresearchgroup.com']
+__version__   = '2017.10'
 __copyright__ = '2016,2017'
 __license__   = 'MIT License'
