@@ -1,3 +1,5 @@
+[![Coverage Status](https://coveralls.io/repos/github/root-11/outscale/badge.svg?branch=master)](https://coveralls.io/github/root-11/outscale?branch=master)
+
 # outscale
 A multi-agent platform contrived by [Bjorn Madsen](https://uk.linkedin.com/in/bmadsen)
 
