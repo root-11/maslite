@@ -4,5 +4,5 @@ python:
   - "3.6"
   - nightly
 
-script:
-  - nosetests tests/
+install: python setup.py install
+script: nosetests .
