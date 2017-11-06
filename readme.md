@@ -1,4 +1,5 @@
-[![Build Status](https://travis-ci.org/root-11/outscale.svg)](https://travis-ci.org/root-11/outscale)
+[![Build Status](https://travis-ci.org/root-11/outscale.svg?branch=master)](https://travis-ci.org/root-11/outscale.svg?branch=master)
+
 [![Coverage Status](https://coveralls.io/repos/github/root-11/outscale/badge.svg?branch=master)](https://coveralls.io/github/root-11/outscale?branch=master)
 
 # outscale
