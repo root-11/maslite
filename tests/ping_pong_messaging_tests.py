@@ -1,4 +1,4 @@
-from outscale.core import Agent, AgentMessage, Scheduler
+from maslite import Agent, AgentMessage, Scheduler
 from collections import deque
 
 """ Provides a demonstration of the ping-pong pattern between two
@@ -52,7 +52,6 @@ class PingPongPlayer(Agent):
         self.send(msg)
 
 
-
 class PingPongBall(AgentMessage):
     def __init__(self, sender, receiver):
         super().__init__(sender=sender, receiver=receiver, topic='ping')
@@ -67,7 +66,7 @@ class PingPongBall(AgentMessage):
 
 
 def demo():
-    s = Scheduler(number_of_multi_processors=0)
+    s = Scheduler()
     player1 = PingPongPlayer()
     s.add(player1)
     player2 = PingPongPlayer()
@@ -88,7 +87,7 @@ def demo():
 
 
 def test00():
-    s = Scheduler(number_of_multi_processors=0)
+    s = Scheduler()
     player1 = PingPongPlayer()
     s.add(player1)
     player2 = PingPongPlayer()
@@ -101,5 +100,4 @@ def test00():
 
 
 if __name__ == "__main__":
-    # test00()
-    demo()
+    test00()

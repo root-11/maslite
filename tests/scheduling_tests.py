@@ -1,4 +1,4 @@
-from outscale.core import Agent, AgentMessage, Scheduler
+from maslite import Agent, AgentMessage, Scheduler
 from collections import namedtuple
 
 
@@ -322,7 +322,7 @@ class StockAgent(Agent):
 
 
 def test01():
-    s = Scheduler(number_of_multi_processors=0)
+    s = Scheduler()
     # create M2
     m2_runtimes = {'A':14,'B':7,'C':3,'D':10,'E':5,'F':6 ,'G': 6}
     m2_transformations = {'A':'M1A', 'B':'M1B', 'C':'M1C','D':'M1D','E':'M1E','F':'M1F','G':'M1G' }
