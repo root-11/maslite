@@ -1,21 +1,19 @@
-[![Build Status](https://travis-ci.org/root-11/outscale.svg?branch=master)](https://travis-ci.org/root-11/outscale.svg?branch=master)
+[![Build Status](https://travis-ci.org/root-11/maslite.svg?branch=master)](https://travis-ci.org/root-/maslite.svg?branch=master)
 
-[![Coverage Status](https://coveralls.io/repos/github/root-11/outscale/badge.svg?branch=master)](https://coveralls.io/github/root-11/outscale?branch=master)
+[![Coverage status](https://coveralls.io/repos/github/root-11/maslite/badge.svg?branch=master)](https://coveralls.io/github/root-11/maslite?branch=master)
 
 # outscale
 A multi-agent platform contrived by [Bjorn Madsen](https://uk.linkedin.com/in/bmadsen)
 
-All right reserved &copy; 2016. All code has been written by the author in 
+All right reserved &copy; 2016++. All code has been written by the author in 
 isolation and any similarity to other systems is purely coincidental.
 
 --------------
 
 #### Outscale explained in 60 seconds:
 
-Outscale is an agent-based kernel, which allows users to focus on the
-agent development instead of all the underlying issues of load-balancing,
-management of agents, multi-processing, multi-threading, i/o-switching,
-etc. Outscale gives the user all of this for free.
+Outscale is an agent-based framework, which allows users to focus on the
+agent development instead of all the underlying management of agents.
 
 All the user needs to worry about are the protocols of interaction, 
 which conveniently may be summarised as:
@@ -135,7 +133,7 @@ seeks to illustrate typical usage.
 
 There are also no requirements for the agent to be programmed in procedural,
 functional or object oriented manner. Doing that is completely up to the 
-user of Outscale.
+user of Maslite.
 
     class MyAgent(Agent):
         def __init__(self):
@@ -209,7 +207,7 @@ that there are no obvious reasons where this convention shouldn't apply, so
 messages which don't have a topic declared explicitly inherit the class name. 
 An example is shown below:
 
-    >>> from outscale.core import AgentMessage
+    >>> from maslite.core import AgentMessage
     >>> class MyMsg(AgentMessage):
     ...     def __init__(sender, receiver):
     ...         super().__init__(sender=sender, receiver=receiver)
@@ -314,7 +312,7 @@ The can extend the setup methods either by writing their own `self.setup`-method
 ### How to load data from a database connection 
 
 When agents are added to the scheduler `setup` is run.
-When agents are removed from outscale `teardown` is run.
+When agents are removed from maslite `teardown` is run.
 
 if agents are added and removed iteratively, they will load their 
 state during `setup` and store it during `teardown` from some database. 
@@ -348,7 +346,7 @@ To get started only 3 steps are required:
 
 Step 1. setup a scheduler
 
-    >>> from outscale.core import Agent, Scheduler
+    >>> from maslite.core import Agent, Scheduler
     >>> s = Scheduler(number_of_multi_processors=0)
     
 Step 2. create agents which have `setup`, `teardown` and `update` methods.
@@ -418,7 +416,7 @@ indicative of any activity.
 
 ### Adjust runspeed using the clock.
 
-The clock is a powertool in OutScale that should be studied. 
+The clock is a powertool in maslite that should be studied. 
 The clock has the ability to:
 
 * run at speeds `-inf`; `+inf` and any floating point progressing in between. 
@@ -485,17 +483,4 @@ Note: The clock_speed can be set as an argument in the schedulers `run` function
                   clock_speed=1.0)
 
 ...
-
-### Loadbalancing.
-
-Outscale only makes one assumption: That it's the primary service on the
-hardware where it is running. 
-
-### Outscale running on multiple machines 
-
-Not implemented yet.
-
-### API access to every agent 
-
-Not implemented yet.
 
