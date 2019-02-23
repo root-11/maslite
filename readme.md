@@ -2,7 +2,7 @@
 
 [![Coverage status](https://coveralls.io/repos/github/root-11/maslite/badge.svg?branch=master)](https://coveralls.io/github/root-11/maslite?branch=master)
 
-# outscale
+# Maslite
 A multi-agent platform contrived by [Bjorn Madsen](https://uk.linkedin.com/in/bmadsen)
 
 All right reserved &copy; 2016++. All code has been written by the author in 
@@ -10,9 +10,9 @@ isolation and any similarity to other systems is purely coincidental.
 
 --------------
 
-#### Outscale explained in 60 seconds:
+#### Maslite explained in 60 seconds:
 
-Outscale is an agent-based framework, which allows users to focus on the
+Maslite is an agent-based framework, which allows users to focus on the
 agent development instead of all the underlying management of agents.
 
 All the user needs to worry about are the protocols of interaction, 
