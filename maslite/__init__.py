@@ -1,7 +1,13 @@
+from maslite.core import Agent, AgentMessage, Scheduler, Sentinel
+from maslite.core import AlarmMessage, PauseMessage
+from maslite.core import SetTimeAndClockSpeedMessage, StartMessage, StopMessage
+from maslite.core import SubscribeMessage, UnSubscribeMessage, GetSubscribersMessage
+from maslite.core import GetSubscriptionTopicsMessage, Clock
+from maslite.core import AddNewAgent, RemoveAgent
 
 """
 
-Outscale is a multi-agent platform contrived by Bjorn Madsen and is
+Maslite is a multi-agent platform contrived by Bjorn Madsen and is
 in public domain as a MIT License, which allows anyone to do
 whatever they want. See the license for details.
 
@@ -29,11 +35,11 @@ See readme.md
 Examples
 ========
 
-See outscale_demos
+See maslite_demos
 
 """
 
-__author__    = ['bjorn.madsen@operationsresearchgroup.com']
-__version__   = '2017.10'
+__author__ = ['bjorn.madsen@operationsresearchgroup.com']
+__version__ = '2017.10'
 __copyright__ = '2016,2017'
-__license__   = 'MIT License'
+__license__ = 'MIT License'

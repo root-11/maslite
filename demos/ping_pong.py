@@ -98,6 +98,5 @@ def test00():
     s.run(iterations=abs(turns))
 
 
-
 if __name__ == "__main__":
     test00()

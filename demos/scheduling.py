@@ -1,7 +1,6 @@
 from maslite import Agent, AgentMessage, Scheduler
 from collections import namedtuple
 
-
 __description__ = """The scheduling demo presented in Bjorn Madsen's PhD thesis (https://goo.gl/YbHVzi).
 """
 
@@ -63,14 +62,14 @@ class Job(object):
         names = [self.order_sku, self.resource_sku,
                  self.supply_time, self.run_time, self.idle_time, self.start_time, self.finish_time,
                  self.quantity]
-        return "<{} {}>".format(self.__class__.__name__," ".join([str(n) for n in names]))
+        return "<{} {}>".format(self.__class__.__name__, " ".join([str(n) for n in names]))
 
     def __repr__(self):
         return self.__str__()
 
 
 class JobsWithIdleTime(AgentMessage):
-    def __init__(self, sender, receiver,jobs_with_idle_time):
+    def __init__(self, sender, receiver, jobs_with_idle_time):
         """
         A specialised message for communicating jobs with idletime.
         :param sender: Agent class or Agent uuid
@@ -183,14 +182,14 @@ class Machine(Agent):
         self.send(new_order)
 
     def schedule_jobs_using_shortest_run_time_first(self):
-        jobs = [(j.run_time,j.order_sku, j) for j in self.jobs]
+        jobs = [(j.run_time, j.order_sku, j) for j in self.jobs]
         jobs.sort()
-        self.jobs = [j for run_time,order_sku,j in jobs]
+        self.jobs = [j for run_time, order_sku, j in jobs]
 
     def schedule_jobs_using_supply_time(self):
         jobs = [(j.supply_time, j.run_time, j) for j in self.jobs]
         jobs.sort()
-        self.jobs = [j for supply_time,run_time,j in jobs]
+        self.jobs = [j for supply_time, run_time, j in jobs]
 
     def update_schedule_with_supply_schedule(self, msg):
         """
@@ -251,7 +250,7 @@ class Machine(Agent):
                 jobs_with_idle_time.append(idx)
 
         # if there's a supplier, we'll send the idle time to it.
-        if sum(jobs_with_idle_time)>0:  # sum of jobs with idle time will be zero if only index zero is present.
+        if sum(jobs_with_idle_time) > 0:  # sum of jobs with idle time will be zero if only index zero is present.
             new_msg = JobsWithIdleTime(sender=self, receiver=self.supplier,
                                        jobs_with_idle_time=jobs_with_idle_time)  # and the index that's not good.
             self.send(new_msg)
@@ -275,7 +274,7 @@ class Machine(Agent):
             if index == 0:
                 pass  # can't move before index zero
             else:  # swap positions with the previous job.
-                self.jobs[index -1], self.jobs[index]= self.jobs[index], self.jobs[index-1]
+                self.jobs[index - 1], self.jobs[index] = self.jobs[index], self.jobs[index - 1]
         # finally:
         self.update_jobs_table()
 
@@ -313,7 +312,7 @@ class StockAgent(Agent):
 
         supplies = []
         for sku, qty in ordered_items.items():
-            sl = SupplyLine(time=0, # should really be self.now() to use the schedulers clock.
+            sl = SupplyLine(time=0,  # should really be self.now() to use the schedulers clock.
                             sku=sku,
                             qty=qty)
             supplies.append(sl)
@@ -324,15 +323,16 @@ class StockAgent(Agent):
 def test01():
     s = Scheduler()
     # create M2
-    m2_runtimes = {'A':14,'B':7,'C':3,'D':10,'E':5,'F':6 ,'G': 6}
-    m2_transformations = {'A':'M1A', 'B':'M1B', 'C':'M1C','D':'M1D','E':'M1E','F':'M1F','G':'M1G' }
+    m2_runtimes = {'A': 14, 'B': 7, 'C': 3, 'D': 10, 'E': 5, 'F': 6, 'G': 6}
+    m2_transformations = {'A': 'M1A', 'B': 'M1B', 'C': 'M1C', 'D': 'M1D', 'E': 'M1E', 'F': 'M1F', 'G': 'M1G'}
     m2 = Machine(name='M2', run_times=m2_runtimes, transformations=m2_transformations)
-    order = Order(sender=m2, receiver=m2, order_items={"A":1,"B":1,"C":1,"D":1,"E":1,"F":1,"G":1})  # {SKU:qty}
+    order = Order(sender=m2, receiver=m2,
+                  order_items={"A": 1, "B": 1, "C": 1, "D": 1, "E": 1, "F": 1, "G": 1})  # {SKU:qty}
     m2.inbox.append(order)
     # create M1
-    m1_runtimes = {'M1A':2, 'M1B': 5, 'M1C': 10, 'M1D': 8, 'M1E': 4, 'M1F':12 , 'M1G': 9}
+    m1_runtimes = {'M1A': 2, 'M1B': 5, 'M1C': 10, 'M1D': 8, 'M1E': 4, 'M1F': 12, 'M1G': 9}
     m1_transformations = {'M1A': 'rawA', 'M1B': 'rawB', 'M1C': 'rawC', 'M1D': 'rawD',
-                          'M1E': 'rawE', 'M1F': 'rawF' , 'M1G': 'rawG'}
+                          'M1E': 'rawE', 'M1F': 'rawF', 'M1G': 'rawG'}
     m1 = Machine(name="M1", run_times=m1_runtimes, transformations=m1_transformations)
 
     # create Stock Agent.
@@ -344,7 +344,7 @@ def test01():
     m1.set_supplier(stock_agent)
 
     # Add m1 and m2 to the scheduler.
-    for agent in [m1,m2,stock_agent]:
+    for agent in [m1, m2, stock_agent]:
         s.add(agent)
     s.run(pause_if_idle=True)
 
@@ -354,7 +354,9 @@ def test01():
             assert isinstance(job, Job)
             assert job.order_sku == check_sequence[idx]
     except AssertionError:
-        raise AssertionError("Expected the final sequence as: {}\n but got: {}".format(check_sequence, [job.order_sku for job in m2.jobs]))
+        raise AssertionError("Expected the final sequence as: {}\n but got: {}".format(check_sequence,
+                                                                                       [job.order_sku for job in
+                                                                                        m2.jobs]))
 
     s.stop()
 
