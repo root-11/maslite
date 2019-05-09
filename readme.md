@@ -1,7 +1,7 @@
 # MASlite
 A multi-agent platform contrived by [Bjorn Madsen](https://uk.linkedin.com/in/bmadsen)
 
-All right reserved &copy; 2016-2018. All code has been written by the author in 
+All right reserved &copy; 2016-2019. All code has been written by the author in 
 isolation and any similarity to other systems is purely coincidental.
 
 --------------
@@ -34,7 +34,7 @@ MASlite is a simle python module for creating multi-agent simulations.
   
 The are plenty of use-cases for MASlite:
 
-- Prototyping MASSIVE(TM) type games.
+- Prototyping MASSIVE&trade; type games.
 - Creating data processing pipeline
 - Optimisation Engine, for:
   - Scheduling (using Bjorn Madsen's distributed scheduling method)
