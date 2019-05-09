@@ -234,7 +234,7 @@ that there are no obvious reasons where this convention shouldn't apply, so
 messages which don't have a topic declared explicitly inherit the class name. 
 An example is shown below:
 
-    >>> from outscale.core import AgentMessage
+    >>> from maslite import AgentMessage
     >>> class MyMsg(AgentMessage):
     ...     def __init__(sender, receiver):
     ...         super().__init__(sender=sender, receiver=receiver)
@@ -339,7 +339,7 @@ The can extend the setup methods either by writing their own `self.setup`-method
 ### How to load data from a database connection 
 
 When agents are added to the scheduler `setup` is run.
-When agents are removed from outscale `teardown` is run.
+When agents are removed from MASlite `teardown` is run.
 
 if agents are added and removed iteratively, they will load their 
 state during `setup` and store it during `teardown` from some database. 
@@ -373,7 +373,7 @@ To get started only 3 steps are required:
 
 Step 1. setup a scheduler
 
-    >>> from outscale.core import Agent, Scheduler
+    >>> from maslite import Agent, Scheduler
     >>> s = Scheduler(number_of_multi_processors=0)
     
 Step 2. create agents which have `setup`, `teardown` and `update` methods.
@@ -443,7 +443,7 @@ indicative of any activity.
 
 ### Adjust runspeed using the clock.
 
-The clock is a powertool in OutScale that should be studied. 
+The clock is a powertool in MASlite that should be studied. 
 The clock has the ability to:
 
 * run at speeds `-inf`; `+inf` and any floating point progressing in between. 

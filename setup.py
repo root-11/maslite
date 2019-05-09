@@ -1,5 +1,5 @@
 """
-Outscale
+MasLite
 """
 from datetime import datetime
 from setuptools import setup
