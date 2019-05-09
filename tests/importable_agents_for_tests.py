@@ -1,4 +1,10 @@
-from outscale.core import Agent, LogMessage
+from maslite import Agent
+import logging
+
+WARNING = logging.WARNING
+DEBUG = logging.DEBUG
+
+LOG_LEVEL = logging.INFO
 
 
 class TestAgent(Agent):
@@ -7,7 +13,7 @@ class TestAgent(Agent):
 
     def setup(self):
         print("TestAgent running 'setup'")
-        pass
+        self._is_setup = True
 
     def update(self):
         print("TestAgent running 'update'")
@@ -17,11 +23,11 @@ class TestAgent(Agent):
             if operation is not None:
                 operation(msg)
             else:
-                self.logger("%s: don't know what to do with: %s" % (self.uuid, str(msg)))
+                self.log(log_level=WARNING, msg="%s: don't know what to do with: %s" % (self.uuid, str(msg)))
 
     def teardown(self):
         print("TestAgent running 'teardown'")
-        pass
+        self._is_setup = False
 
 
 class WorkIntensiveAgent(Agent):
@@ -40,13 +46,10 @@ class WorkIntensiveAgent(Agent):
 
     def update(self):
         workload = 1000000
-        log = False
         j = 0
         for i in range(workload):
             j += i
-        if log:
-            msg = LogMessage(sender=self, receiver=None, log_level="DEBUG",
-                             log_message="Updating {}-{}: Update no: {}".format(
-                                 self.__class__.__name__, self.name, self.total_updates))
-            self.send(msg)
+        if LOG_LEVEL == DEBUG:
+            self.log(log_level=DEBUG,
+                     msg="Updating {}-{}: Update no: {}".format(self.__class__.__name__, self.name, self.total_updates))
         self.total_updates += 1

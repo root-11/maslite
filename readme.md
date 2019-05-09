@@ -1,21 +1,46 @@
-[![Build Status](https://travis-ci.org/root-11/outscale.svg?branch=master)](https://travis-ci.org/root-11/outscale.svg?branch=master)
-
-[![Coverage Status](https://coveralls.io/repos/github/root-11/outscale/badge.svg?branch=master)](https://coveralls.io/github/root-11/outscale?branch=master)
-
-# outscale
+# MASlite
 A multi-agent platform contrived by [Bjorn Madsen](https://uk.linkedin.com/in/bmadsen)
 
-All right reserved &copy; 2016. All code has been written by the author in 
+All right reserved &copy; 2016-2018. All code has been written by the author in 
 isolation and any similarity to other systems is purely coincidental.
 
 --------------
 
-#### Outscale explained in 60 seconds:
+#### MASlite explained in 60 seconds:
 
-Outscale is an agent-based kernel, which allows users to focus on the
-agent development instead of all the underlying issues of load-balancing,
-management of agents, multi-processing, multi-threading, i/o-switching,
-etc. Outscale gives the user all of this for free.
+MASlite is a simle python module for creating multi-agent simulations.
+
+- _Simple_ API: Only 3 modules to learn: Scheduler, Agent & Agent message
+- _Fast_: Handles up to 270 million messages per second
+- _Lightweight_: 52kB.
+
+- The scheduler (main loop)
+  - handles pause and proceed with a single call.
+  - assures repeatability in execution, which makes agents easy to debug.
+  - handles up to 270 million messages per second.
+
+- Agent's 
+
+  - are python classes that have setup(), update() and teardown() methods that can be customized. 
+  - can exchange messages using send() and receive().
+  - can subscribe/unsubscribe to message classes.
+  - have clocks and can set alarms.
+  - can be tested individually.
+  - can have independent I/O/Database interaction.
+  
+- Messages
+  - that have sender and receiver enable direct communication
+  - that have topics and no receiver are treated as broadcasts, and sent to subscribers.
+  
+The are plenty of use-cases for MASlite:
+
+- Prototyping MASSIVE(TM) type games.
+- Creating data processing pipeline
+- Optimisation Engine, for:
+  - Scheduling (using Bjorn Madsen's distributed scheduling method)
+  - Auctions (using Dimtry Bertsekas alternating iterative auction)
+ 
+-------------------
 
 All the user needs to worry about are the protocols of interaction, 
 which conveniently may be summarised as:
@@ -135,7 +160,7 @@ seeks to illustrate typical usage.
 
 There are also no requirements for the agent to be programmed in procedural,
 functional or object oriented manner. Doing that is completely up to the 
-user of Outscale.
+user of MASlite.
 
     class MyAgent(Agent):
         def __init__(self):
@@ -488,10 +513,10 @@ Note: The clock_speed can be set as an argument in the schedulers `run` function
 
 ### Loadbalancing.
 
-Outscale only makes one assumption: That it's the primary service on the
+MASlite only makes one assumption: That it's the primary service on the
 hardware where it is running. 
 
-### Outscale running on multiple machines 
+### MASlite running on multiple machines 
 
 Not implemented yet.
 

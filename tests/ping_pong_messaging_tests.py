@@ -1,6 +1,6 @@
 from maslite import Agent, AgentMessage, Scheduler
 from collections import deque
-
+import time
 """ Provides a demonstration of the ping-pong pattern between two
 agents with priority inbox, who use the message topic as signal.
 """
@@ -11,9 +11,6 @@ class PingPongPlayer(Agent):
         super().__init__()
         self.operations.update({'ping': self.pingpong,
                                 'pong': self.pingpong})
-        # the operations update above shows that two topics can have the
-        # same function reacting to them.
-        self.use_priority_inbox = False
 
     def setup(self):
         pass
@@ -22,33 +19,15 @@ class PingPongPlayer(Agent):
         pass
 
     def update(self):
-        if self.use_priority_inbox:
-            priority_topics = ['ping']
-            priority_messages = deque()  # from collections import deque
-            normal_messages = deque()
-            while self.messages:
-                msg = self.receive()
-                if msg.get_topic() in priority_topics:
-                    priority_messages.append(msg)
-                else:
-                    normal_messages.append(msg)
-            priority_messages.extend(normal_messages)
-            self.inbox.extend(priority_messages)
-
-        print("ID {} got {} ping pong balls. Playing them back now...".format(str(self.uuid)[-3:], len(self.inbox)))
         while self.messages:
             msg = self.receive()
             operation = self.operations.get(msg.topic)
             if operation is not None:
                 operation(msg)
-            else:
-                self.logger(log_message="%s: don't know what to do with: %s" % (self.uuid, str(msg)),
-                            log_level="DEBUG")
 
     def pingpong(self, msg):
         assert isinstance(msg, PingPongBall)
         msg.hit()
-        print("{}".format(msg.topic))
         self.send(msg)
 
 
@@ -94,9 +73,11 @@ def test00():
     s.add(player2)
     ball = PingPongBall(sender=player1, receiver=player2)
     player1.inbox.append(ball)
-    turns = 10
+    turns = 10000
+    t_start = time.time()
     s.run(iterations=abs(turns))
-
+    t_end = time.time()
+    print("{} turns took {} sec ~ {} turns/sec".format(turns, t_end-t_start, round(turns / (t_end-t_start))))
 
 
 if __name__ == "__main__":

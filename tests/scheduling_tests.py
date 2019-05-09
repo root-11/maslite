@@ -344,7 +344,7 @@ def test01():
     m1.set_supplier(stock_agent)
 
     # Add m1 and m2 to the scheduler.
-    for agent in [m1,m2,stock_agent]:
+    for agent in [m1, m2, stock_agent]:
         s.add(agent)
     s.run(pause_if_idle=True)
 
