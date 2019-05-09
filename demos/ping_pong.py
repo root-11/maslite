@@ -79,6 +79,5 @@ def test00():
     t_end = time.time()
     print("{} turns took {} sec ~ {} turns/sec".format(turns, t_end-t_start, round(turns / (t_end-t_start))))
 
-
 if __name__ == "__main__":
     test00()
