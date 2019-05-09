@@ -1,11 +1,10 @@
 import logging
 import time
 from random import randint
-from uuid import uuid4
 from collections import deque
 from maslite import AddNewAgent, RemoveAgent
 from maslite import Agent, AgentMessage, AlarmMessage, PauseMessage
-from maslite import GetSubscriptionTopicsMessage, Clock, Scheduler, Sentinel
+from maslite import GetSubscriptionTopicsMessage, Clock, Scheduler
 from maslite import SetTimeAndClockSpeedMessage, StartMessage, StopMessage
 from maslite import SubscribeMessage, UnSubscribeMessage, GetSubscribersMessage
 from tests.importable_agents_for_tests import TestAgent
@@ -18,20 +17,20 @@ SKIP_CLOCK_TESTS = True
 def test_basic_agent_creation():
     """ Test basic object creation including all messages"""
     a = Agent()
-    assert hasattr(a, "uuid")
-    assert hasattr(a, "inbox")
-    assert hasattr(a, "outbox")
+    assert hasattr(a, 'uuid')
+    assert hasattr(a, 'inbox')
+    assert hasattr(a, 'outbox')
     assert a.uuid
     assert isinstance(a.inbox, deque)
     assert isinstance(a.outbox, deque)
-    assert hasattr(a, "receive")
+    assert hasattr(a, 'receive')
     assert callable(a.receive)
-    assert hasattr(a, "messages")
+    assert hasattr(a, 'messages')
     _ = str(a)
     assert a.keep_awake is False, "the default agent should be asleep"
-    assert hasattr(a, "__str__")
+    assert hasattr(a, '__str__')
     assert "UUID" in str(a).upper()
-    assert hasattr(a, "__repr__")
+    assert hasattr(a, '__repr__')
     print(a)
 
     try:
@@ -50,35 +49,15 @@ def test_basic_agent_creation():
         assert True
 
 
-def test_uuid_settings():
-    uuid = uuid4()
-    a = Agent(uuid=uuid.int)
-    try:
-        a = Agent(uuid=uuid.hex)
-        assert False, "this should have failed."
-    except ValueError:
-        assert True
-
-
 def test_the_test_agent():
     a = TestAgent()
     assert a.is_setup() is False
     a.receive()  # forcing receive in stupidity and making sure that the exception is caught and handled gracefully.
 
     before = len(a.outbox)
-    a.unsubscribe(topic="007")
+    a.unsubscribe(topic='007')
     after = len(a.outbox)
-    assert (
-        after - before == 1
-    ), "An unsubscribe message should have ended up in the agents outbox."
-
-
-def test_of_sentinel_creation():
-    s = Sentinel()
-    assert hasattr(s, "uuid")
-    s2 = Sentinel(uuid=123456)
-    assert not s is s2
-    assert s.uuid != s2.uuid
+    assert after - before == 1, "An unsubscribe message should have ended up in the agents outbox."
 
 
 def test_essential_message_functions():
@@ -89,23 +68,18 @@ def test_essential_message_functions():
     assert basic_msg.topic == "test"
     assert isinstance(basic_msg.uuid, int)
     try:
-        a.uuid = "hahaha"
+        a.uuid = 'hahaha'
         assert False, "UUID cannot be set once the object has been instantiated"
     except ValueError:
         assert True
 
-    assert hasattr(basic_msg, "copy")
+    assert hasattr(basic_msg, 'copy')
     copy = basic_msg.copy()
     assert copy is not basic_msg, "they should be different objects"
     for k, v in basic_msg.__dict__.items():
-        assert hasattr(
-            copy, k
-        ), "the copy of the basic message doesn't have the attr {}".format(k)
-        assert (
-            getattr(copy, k) == v
-        ), "the value on the copy of the message is not the same {} != {}".format(
-            getattr(copy, k), v
-        )
+        assert hasattr(copy, k), "the copy of the basic message doesn't have the attr {}".format(k)
+        assert getattr(copy, k) == v, "the value on the copy of the message is not the same {} != {}".format(
+            getattr(copy, k), v)
     # test the update function with a non-specific message
     a.inbox.append(basic_msg)
     a.run()
@@ -115,11 +89,11 @@ def test_essential_message_functions():
     assert basic_msg.sender == 44
     basic_msg.sender = None
     assert basic_msg.sender is None
-    basic_msg.topic = "random topic"
-    assert basic_msg.topic == "random topic"
+    basic_msg.topic = 'random topic'
+    assert basic_msg.topic == 'random topic'
 
 
-def check_that_all_messages_can_be_created():
+def check_that_all_messages_can_be_created():  # TODO: Create tests for all permutations of the messages
     """
     All the messages below should be able to create without errors.
     """
@@ -142,7 +116,7 @@ def check_that_all_messages_can_be_created():
     usm = UnSubscribeMessage(sender=a, receiver=a, subscription_topic="Testing")
     assert usm.subscription_topic == "Testing"
     add(usm)
-    add(GetSubscriptionTopicsMessage(sender=a, receiver=a, subscription_topics="tests"))
+    add(GetSubscriptionTopicsMessage(sender=a, receiver=a, subscription_topics='tests'))
     add(GetSubscribersMessage(sender=a, receiver=a, subscription_topic="Testing"))
 
     for msg in messages:
@@ -153,20 +127,14 @@ def check_that_all_messages_can_be_created():
 def test_clocks_attrs():
     s = Scheduler()
     s.setup()
-    hasattr(s, "clock")
+    hasattr(s, 'clock')
     assert isinstance(s.clock, Clock)
     assert s.clock.uuid in s.agents
-    assert hasattr(s.clock, "setup")
+    assert hasattr(s.clock, 'setup')
     s.clock.setup()
     s.clock.update()
     s.clock.set_time_using_msg(
-        SetTimeAndClockSpeedMessage(
-            sender=s,
-            receiver=None,
-            new_time=randint(-10, 10),
-            new_clock_speed=randint(1, 10),
-        )
-    )
+        SetTimeAndClockSpeedMessage(sender=s, receiver=None, new_time=randint(-10, 10), new_clock_speed=randint(1, 10)))
     try:
         s.clock.time = "1970-01-01T00:00:00.000"
         assert False
@@ -174,7 +142,7 @@ def test_clocks_attrs():
         assert True
 
     try:
-        s.clock.clock_speed = "really fast"
+        s.clock.clock_speed = 'really fast'
         assert False, "this should fail"
     except ValueError:
         assert True
@@ -186,9 +154,7 @@ def test_clocks_attrs():
     except ValueError:
         assert True
     s.clock.advance_time_to_next_timed_event(issue_stop_message_if_no_more_events=True)
-    assert isinstance(
-        s.clock.outbox[-1], PauseMessage
-    ), "A pause message should have been issued."
+    assert isinstance(s.clock.outbox[-1], PauseMessage), "A pause message should have been issued."
     s.run(seconds=1)
     s.clock.teardown()
     assert not s.clock.is_setup()
@@ -197,26 +163,12 @@ def test_clocks_attrs():
 
 def test_scheduler_teardown_with_junk():
     s = Scheduler()
-    s.mail_queue.append("a non-AgentMessage")
-    s.process_mail_queue()  # quietly dumps the broken message with a
-    # log message stating "Discovered a faulty non-AgentMessage in the inbox. Message is dumped..."
-    s.agents[123] = "this string"
-    try:
-        s.run(iterations=1)
-        assert False, "running with non-agents won't work."
-    except AssertionError:
-        assert True
-
-    try:
-        s.teardown()
-        assert False, "teardown with non-agents won't work."
-    except AssertionError:
-        assert True
-
-    s = Scheduler()
     s.setup()
-    s.remove(s.clock)  # doing this is very stupid so we'd better have a test for it.
-    s.remove(s.clock)  # 2 x stupid doesn't make it smart.
+    try:
+        s.remove(s.clock)  # doing this is very stupid so we'd better have a test for it.
+        assert False
+    except ValueError:
+        assert True
 
 
 def scheduler_and_clock_setup_test():
@@ -265,17 +217,7 @@ def clock_tests():  # Clock tests
     if SKIP_CLOCK_TESTS:
         return
     test_duration = 1  # seconds
-    configurations = [
-        [0, 1],
-        [10, 1],
-        [100, 1],
-        [1000, 1],
-        [0, 2],
-        [10, 2],
-        [100, 2],
-        [1000, 2],
-        [10, 10],
-    ]
+    configurations = [[0, 1], [10, 1], [100, 1], [1000, 1], [0, 2], [10, 2], [100, 2], [1000, 2], [10, 10]]
     for set_time, speed in configurations:
         c = Clock(world_time=set_time, clock_speed=speed)
         c.run()
@@ -293,20 +235,16 @@ def clock_tests():  # Clock tests
             hz = 1 / tolerance
         else:
             hz = 10 ** 6
-        values = [
-            "end-time: {}".format(end),
-            "start-time: {}".format(start),
-            "dt: {}".format(end - start),
-            "clock-frq: {}".format((end - start) / speed),
-            "clock-speed: {}".format(speed),
-        ]
-        logging.log(
-            logging.DEBUG,
-            "clock precision is around {} Hz with config: [{},{}] and values: \n\t{}".format(
-                hz, set_time, speed, "\n\t".join(values)
-            ),
-        )
-        print(".", end="", flush=True)
+        values = ["end-time: {}".format(end),
+                  "start-time: {}".format(start),
+                  "dt: {}".format(end - start),
+                  "clock-frq: {}".format((end - start) / speed),
+                  "clock-speed: {}".format(speed)]
+        logging.log(logging.DEBUG,
+                    "clock precision is around {} Hz with config: [{},{}] and values: \n\t{}".format(hz, set_time,
+                                                                                                     speed, "\n\t".join(
+                            values)))
+        print(".", end='', flush=True)
 
 
 def tests_for_changing_clock_speeds():
@@ -327,9 +265,7 @@ def tests_for_changing_clock_speeds():
     while dummy_msg not in c.outbox:
         c.run()
     end = time.time()
-    assert (
-        1.45 < end - start < 1.55
-    ), "The alarm message should be returned within 1.5 secs +/-10%"
+    assert 1.45 < end - start < 1.55, "The alarm message should be returned within 1.5 secs +/-10%"
 
     # react's to functions:
     timestamp = time.time() - 2  # setting the timestamp in the past to avoid sleeping.
@@ -341,29 +277,23 @@ def tests_for_changing_clock_speeds():
 
     # running the clock at a million times real-time.
     new_clock_speed = 10 ** 6
-    set_time_msg = SetTimeAndClockSpeedMessage(
-        c, c, new_time=c.time, new_clock_speed=new_clock_speed
-    )
+    set_time_msg = SetTimeAndClockSpeedMessage(c, c, new_time=c.time, new_clock_speed=new_clock_speed)
     c.set_time_using_msg(set_time_msg)
-    assert (
-        c.clock_speed == new_clock_speed
-    ), "clock speed should be {}, but is {}".format(c.clock_speed, new_clock_speed)
+    assert c.clock_speed == new_clock_speed, "clock speed should be {}, but is {}".format(c.clock_speed,
+                                                                                          new_clock_speed)
     time_measurements = []
     start = c.time
     for i in range(4):
         time.sleep(1)
         end = c.time
-        time_measurements.append(
-            end - start
-        )  # should be appx. 1 second each, which equals 10**6 seconds.
+        time_measurements.append(end - start)  # should be appx. 1 second each, which equals 10**6 seconds.
         start = end
     average = sum(time_measurements) / len(time_measurements)
     tolerance = 0.05
-    assert (
-        new_clock_speed * (1 - tolerance) < average < new_clock_speed * (1 + tolerance)
-    ), "clock speed progressed at {}, whilst {} +/-{}% was expected".format(
-        average, new_clock_speed, 100 * tolerance
-    )
+    assert new_clock_speed * (1 - tolerance) < average < new_clock_speed * (
+                1 + tolerance), "clock speed progressed at {}, whilst {} +/-{}% was expected".format(average,
+                                                                                                     new_clock_speed,
+                                                                                                     100 * tolerance)
 
     try:
         c.time = "1970-01-01T00:00:00.000000"
@@ -375,9 +305,7 @@ def tests_for_changing_clock_speeds():
 
     try:
         c.clock_speed = "fast"
-        assert (
-            False
-        ), "Setting clock speed requires an integer or float. A string was passed"
+        assert False, "Setting clock speed requires an integer or float. A string was passed"
     except ValueError:
         assert True
 
@@ -388,9 +316,7 @@ def tests_for_changing_clock_speeds():
         assert True
 
     try:
-        msg = SetTimeAndClockSpeedMessage(
-            sender=44, receiver=c, new_time=time.time(), new_clock_speed="2x"
-        )
+        msg = SetTimeAndClockSpeedMessage(sender=44, receiver=c, new_time=time.time(), new_clock_speed="2x")
         assert False, "The set time message's new_clock_speed does not accept a string."
     except AttributeError:
         assert True
@@ -410,9 +336,7 @@ def one_to_one_mail_distribution_tests():
     s.setup()
     s.run(iterations=10)
     before = len(s.outbox)
-    s.get_subscription_topics(
-        GetSubscriptionTopicsMessage(sender=s, receiver=s, subscription_topics=s.uuid)
-    )
+    s.get_subscription_topics(GetSubscriptionTopicsMessage(sender=s, receiver=s, subscription_topics=s.uuid))
     after = len(s.outbox)
     assert after - before == 1
     m = s.outbox[-1]
@@ -425,40 +349,137 @@ def one_to_one_mail_distribution_tests():
     assert len(m.subscription_topics) > 1
 
     #
-    s.get_subscriber_list(
-        GetSubscribersMessage(sender=s, subscription_topic=s.clock.uuid)
-    )
+    s.get_subscriber_list(GetSubscribersMessage(sender=s, subscription_topic=s.clock.uuid))
     m = s.outbox[-1]
     assert isinstance(m, GetSubscribersMessage)
     assert isinstance(m.subscribers, set)
     assert s.clock.uuid in m.subscribers
     # exercising the unsubscribe functions.
-    s.mailing_lists[s.clock.uuid].add("1234567890")
-    s.process_unsubscribe_message(
-        UnSubscribeMessage(sender=s.clock, subscription_topic=s.clock.uuid)
-    )
-    s.mailing_lists[s.clock.uuid].remove("1234567890")
+    s.mailing_lists[s.clock.uuid].add('1234567890')
+    s.process_unsubscribe_message(UnSubscribeMessage(sender=s.clock, subscription_topic=s.clock.uuid))
+    s.mailing_lists[s.clock.uuid].remove('1234567890')
     # (below): A deliberate repeat unsubscribe triggers a keyerror that is handled gracefully.
-    s.process_unsubscribe_message(
-        UnSubscribeMessage(sender=s.clock, subscription_topic=s.clock.uuid)
-    )
+    s.process_unsubscribe_message(UnSubscribeMessage(sender=s.clock, subscription_topic=s.clock.uuid))
     # the mailing list is now empty and shold be purged.
     assert not s.clock.uuid in s.mailing_lists, s.mailing_lists
 
-    s.process_unsubscribe_message(
-        UnSubscribeMessage(sender=s.clock, subscription_topic=s.uuid)
-    )
+    s.process_unsubscribe_message(UnSubscribeMessage(sender=s.clock, subscription_topic=s.uuid))
     # (above) is quietly dumped as an IndexError is raised.
-    s.process_unsubscribe_message(
-        UnSubscribeMessage(sender=s.clock, subscription_topic=None)
-    )
+    s.process_unsubscribe_message(UnSubscribeMessage(sender=s.clock, subscription_topic=None))
 
     s.teardown()
+
+    return  # FIXME
+    mm = MailMan()
+    mm.run()
+    assert len(mm.agent_register.keys()) == 1, "The mailman should be able to register itself."
+    assert len(mm.mailing_lists.keys()) == 2, "The mailman should have registered itself as a class and uuid"
+    assert mm.uuid in mm.mailing_lists.keys(), "the mailman should be registered here."
+    assert mm.__class__.__name__ in mm.mailing_lists.keys(), "the mailman's class should be registered here too."
+    getsubs = GetSubscribersMessage(sender=mm,
+                                    receiver=mm,
+                                    subscription_topic=mm.__class__.__name__)
+    mm.inbox.append(getsubs)
+    mm.run()  # running the getsubs message results in an update getsubs message
+    # which will keep looping to the mailman itself as sender and receiver is the mailman.
+    assert len(mm.inbox) == 1, "mailman should have received its own GetSubscribersMessage"
+    getsubs2 = GetSubscribersMessage(sender=mm,
+                                     receiver=None,
+                                     subscription_topic=mm.__class__.__name__)
+    # The message above assert that handling "None" as receiver also works.
+    mm.inbox.append(getsubs2)
+    mm.run()
+    assert len(mm.inbox) == 2, "mailman should have received its own GetSubscribersMessage"
+    assert getsubs2.receiver == mm.uuid, "the receiver of the getsubs2 message should have been updated from None to the mailmans uuid"
+
+    faulty_msg = "7"
+    mm.inbox.append(faulty_msg)
+    try:
+        mm.run()
+        test_framework_msg = "The faulty message above was expected as a part of the testing."
+    except Exception:
+        raise AssertionError("the agent should handle a faulty message gracefully.")
+
+    # clearing inbox from the junk messages above:
+    while mm.messages:
+        _ = mm.receive()
+    while mm.outbox:
+        mm.outbox.popleft()
+
+    us_msg = UnSubscribeMessage(sender=mm, subscription_topic="some rubbish that isn't subscribed for")
+    mm.inbox.append(us_msg)
+    mm.log("the error message below should say that the subject never was subscribed to", level="DEBUG")
+    mm.run()
+
+    # checking that the mailman can generate the list of subscription topics.
+    gstm = GetSubscriptionTopicsMessage(mm, mm)
+    mm.inbox.append(gstm)
+    mm.run()
+    assert len(mm.inbox) == 1, "the mailman should have received its own message"
+    response = mm.inbox.pop()
+    assert isinstance(response, GetSubscriptionTopicsMessage)
+    assert response.uuid == gstm.uuid, "the gstm message should have been updated."
+    topics = response.subscription_topics
+    assert isinstance(topics, list)
+
+    subscription_topic = "random topic"
+    subs_msg = SubscribeMessage(sender=mm, subscription_topic=subscription_topic)
+    mm.inbox.append(subs_msg)
+    mm.run()
+
+    gstm = GetSubscriptionTopicsMessage(mm, mm)
+    mm.inbox.append(gstm)
+    mm.run()
+    response = mm.inbox.pop()
+    assert isinstance(response, GetSubscriptionTopicsMessage)
+    assert response.uuid == gstm.uuid, "the gstm message should have been updated."
+    assert len(response.subscription_topics) == len(topics) + 1, "the list of topics should now be one topic longer."
+
+    subtop = AgentMessage(sender=mm, receiver=None, topic=subscription_topic)
+    mm.inbox.append(subtop)
+    mm.run()  # mailman should receive the message, but not know what to do with it.
+
+    # clearing inbox from the junk messages above:
+    junk_cleared = 0
+    while mm.messages:
+        _ = mm.receive()
+        junk_cleared += 1
+    while mm.outbox:
+        mm.outbox.popleft()
+        junk_cleared += 1
+    assert junk_cleared == 0, "Mailman cleared out {} junk messages. Should have been zero as the junk messages are dumped quietly".format(
+        junk_cleared)
+
+    un_subs_msg = UnSubscribeMessage(sender=mm, subscription_topic=subscription_topic)
+    mm.inbox.append(un_subs_msg)
+    mm.run()
+
+    gstm = GetSubscriptionTopicsMessage(mm, mm)
+    mm.inbox.append(gstm)
+    mm.run()
+    assert len(mm.inbox) == 1, "There is more than one message? Can't be right..."
+    response = mm.inbox.pop()
+    assert isinstance(response, GetSubscriptionTopicsMessage)
+    assert response.uuid == gstm.uuid, "the gstm message should have been updated."
+    assert len(response.subscription_topics) == len(topics), "the extra topic should have been removed."
+
+    special_msg = AgentMessage(sender=mm, receiver=7,
+                               topic="magic rocket man")  # I'm pretty sure that the mailman doesn't have a function for that topic, nor that sender...
+    special_msg2 = special_msg.copy()
+    mm.inbox.append(special_msg)
+    mm.update()
+    # mm.run()
+    for i in range(101):
+        mm.update()
+    assert len(mm.inbox) == 0, "Mailman should have dumped the message."
+    mm.run()
+    assert True, "mm run should finish by itself."
 
 
 def tests_for_mail_distributions_broadcast_functionality():
     """ Testing the mailmans broadcast functionality."""
-    s = Scheduler(clock_speed=1.00000, pause_if_idle=True)
+    s = Scheduler(clock_speed=1.00000,
+                  pause_if_idle=True)
     agents = [TestAgent() for i in range(10)]
     for agent in agents:
         s.add(agent)
@@ -468,6 +489,9 @@ def tests_for_mail_distributions_broadcast_functionality():
     print("Mailman's broadcast functionality works...")
     s.run(iterations=5)
     # making a genuine agent message but injecting it into the mailmans subscribe method which will fail.
+    # spam_msg = AgentMessage(sender='bob', receiver='bob', topic="subscribe")
+    # s.inbox.append(spam_msg)
+    # s.run(iterations=5)
 
     # injecting an unsubscribe message for a topic that never was subscribed for.
     fake_unsub_msg = UnSubscribeMessage(sender=s, subscription_topic="black ninjas")
@@ -486,10 +510,16 @@ def tests_for_mail_distributions_broadcast_functionality():
 
     # testing that remove agent works.
 
-    dead_agent = [
-        agent.uuid for agent in s.agents.values() if isinstance(agent, TestAgent)
-    ][0]
+    dead_agent = [agent.uuid for agent in s.agents.values() if isinstance(agent, TestAgent)][0]
     s.remove(dead_agent)
+
+    # sticking a dead_agent into the schedulers inbox
+    # s.inbox.append(dead_agent)
+    # assert dead_agent in s.agents, "The agent should have been added here!"
+    # s.run(iterations=1)
+
+    # testing the schedulers teardown.
+    # s.teardown()
     s.stop()
 
 
@@ -509,48 +539,42 @@ def test_schedulers_remove_agent_function():
 
 def tests_schedulers_add_and_remove_funtions_using_messages():
     """ Test to add/remove agents using messages sent to the scheduler's class name."""
-    s = Scheduler(clock_speed=1.00000, pause_if_idle=True)
+    s = Scheduler(clock_speed=1.00000,
+                  pause_if_idle=True)
     a = TestAgent()
     msg = AddNewAgent(sender=s, agent=a)
     s.inbox.append(msg)
     s.run(iterations=3)
     assert a.uuid in s.agents, "TestAgent class should be registered by now"
     s.run(iterations=10)
-    assert (
-        TestAgent.__name__ in s.mailing_lists.keys()
-    ), "TestAgent class should be registered by now"
+    assert TestAgent.__name__ in s.mailing_lists.keys(), "TestAgent class should be registered by now"
     msg = RemoveAgent(sender=s, agent_or_agent_uuid=a)
     s.inbox.append(msg)
     s.run(iterations=5)
-    assert (
-        TestAgent.__name__ not in s.agents
-    ), "TestAgent class should be de-registered by now"
+    assert TestAgent.__name__ not in s.agents, "TestAgent class should be de-registered by now"
     s.stop()
 
 
 def checking_the_schedulers_real_time_start_up_time():  # Single threaded scheduler tests.
     """ Running a single processor single threaded test of the scheduler. """
-    s1 = Scheduler(clock_speed=1.00000, pause_if_idle=True)
+    s1 = Scheduler(clock_speed=1.00000,
+                   pause_if_idle=True)
     assert s1.clock.time < 0.2, "launching the Scheduler shouldn't take 200 msecs'."
     start = time.time()
     s1.run(seconds=1)  # one second !
     end = time.time()
-    assert (
-        0 < (end - start) < 1.5
-    ), "the scheduler should have timedout in ~1 sec. Actual time was {}".format(
-        end - start
-    )
+    assert 0 < (end - start) < 1.5, "the scheduler should have timedout in ~1 sec. Actual time was {}".format(
+        end - start)
 
 
 def Testing_the_schedulers_timed_stop_function():
     """ Testing the schedulers timed stop function. """
-    s = Scheduler(clock_speed=1.00000, pause_if_idle=True)
+    s = Scheduler(clock_speed=1.00000,
+                  pause_if_idle=True)
     start = time.time()
     s.run(seconds=1)
     end = time.time()
-    assert (
-        end - start < 1.5
-    ), "The scheduler was supposed to stop within a second. Apparently it didn't."
+    assert end - start < 1.5, "The scheduler was supposed to stop within a second. Apparently it didn't."
     s.stop()
 
 
@@ -565,24 +589,20 @@ def test_of_clock_scheduled_speed_changes():
     - set_pause_time
     - set_stop_time """
     start = time.time()
-    s = Scheduler(clock_speed=None, pause_if_idle=True)
+    s = Scheduler(clock_speed=None,
+                  pause_if_idle=True)
     s.clock.time = 0
     s.set_new_clock_speed_as_timed_event(start_time=0, clock_speed=None)
     s.set_pause_time(10)
     s.run(pause_if_idle=True)
-    assert (
-        s.clock.clock_speed is None
-    ), "Clock speed doesn't seem to have been set to 'None'...!"
+    assert s.clock.clock_speed is None, "Clock speed doesn't seem to have been set to 'None'...!"
     assert 10 <= s.time <= 10.01, "Timing problem..!"
     s.set_stop_time(s.time + 100)
     s.run(clock_speed=None)
     end = time.time()
     tolerated_delay = 2.25  # FIXME!
-    assert (
-        end - start < tolerated_delay
-    ), "The time progressed slower than expected: {} actual {}".format(
-        tolerated_delay, end - start
-    )
+    assert end - start < tolerated_delay, "The time progressed slower than expected: {} actual {}".format(
+        tolerated_delay, end - start)
     s.stop()
 
 
@@ -591,15 +611,10 @@ def test_of_the_clocks_ability_to_jump_in_time_to_next_event():
     c = Clock(clock_speed=None)
     dt = 2
     now = c.time
-    c.set_alarm_clock(
-        alarm_time=now + dt,
-        alarm_message=AgentMessage(sender=c, receiver=c, topic="hello world"),
-    )
+    c.set_alarm_clock(alarm_time=now + dt, alarm_message=AgentMessage(sender=c, receiver=c, topic="hello world"))
     c.advance_time_to_next_timed_event()
     after = c.time
-    assert (
-        dt == after - now
-    ), "Error: dt was {}, whilst c.now is {} and now was {}".format(dt, after, now)
+    assert dt == after - now, "Error: dt was {}, whilst c.now is {} and now was {}".format(dt, after, now)
 
 
 def Testing_start_and_pause_of_the_scheduler():
@@ -669,24 +684,14 @@ def Testing_start_and_pause_of_the_scheduler():
     s = Scheduler(clock_speed=1.0000)
     time_0 = s.time
     clock_speed_0 = s.clock.clock_speed
-    assert int(clock_speed_0) == 1.0000, "clock speed is {} and not 1.0000".format(
-        clock_speed_0
-    )
+    assert int(clock_speed_0) == 1.0000, "clock speed is {} and not 1.0000".format(clock_speed_0)
     new_time = 1000
     s.clock.time = new_time
     clock_time = s.clock.time
-    assert (
-        clock_time == new_time
-    ), "the time should be {} but hasn't been set, as it is {}".format(
-        new_time, clock_time
-    )
+    assert clock_time == new_time, "the time should be {} but hasn't been set, as it is {}".format(new_time, clock_time)
     time_1 = s.time  # the scheduler hasn't run, so it hasn't updated.
-    assert (
-        time_0 == time_1
-    ), "when the scheduler isn't running, time shouldn't progress."
-    assert (
-        time_0 != clock_time
-    ), "when the scheduler isn't running, time shouldn't progress."
+    assert time_0 == time_1, "when the scheduler isn't running, time shouldn't progress."
+    assert time_0 != clock_time, "when the scheduler isn't running, time shouldn't progress."
 
     s.run(iterations=5)  # Need to prime the scheduler.
     scheduler_start_time = s.time
@@ -698,11 +703,9 @@ def Testing_start_and_pause_of_the_scheduler():
     for i in range(runtime_iterations):
         assert s.time == s.clock.time, "scheduler and schedulers clock are out of sync"
         s.run(seconds=run_time)
-        time.sleep(
-            sleep_time
-        )  # we add the sleep so that if the clock doesn't sleep when the scheduler isn't
+        time.sleep(sleep_time)  # we add the sleep so that if the clock doesn't sleep when the scheduler isn't
         # runing, it will reveal that 10 seconds have passed (total time) and not 5.
-        print(".", flush=True, end="")
+        print(".", flush=True, end='')
 
     wall_clock_end_time = time.time()
     scheduler_end_time = s.time
@@ -711,14 +714,10 @@ def Testing_start_and_pause_of_the_scheduler():
     dt_scheduler = scheduler_end_time - scheduler_start_time
 
     if round(wall_clock_end_time - wall_clock_start_time) / 2 == runtime_iterations * 2:
-        raise Exception(
-            "Schedulers clock did not sleep whilst scheduler wasn't running."
-        )
+        raise Exception("Schedulers clock did not sleep whilst scheduler wasn't running.")
 
-    timing_checks = [
-        round(dt_scheduler) - run_time * runtime_iterations == 0,
-        round(dt_wall) == runtime_iterations * (run_time + sleep_time),
-    ]
+    timing_checks = [round(dt_scheduler) - run_time * runtime_iterations == 0,
+                     round(dt_wall) == runtime_iterations * (run_time + sleep_time)]
     assert all(timing_checks), "The timing checks didn't pass: {}".format(timing_checks)
     s.stop()
 
@@ -739,6 +738,6 @@ def doall():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    logging.info("Started")
+    logging.info('Started')
     doall()
-    logging.info("Finished")
+    logging.info('Finished')

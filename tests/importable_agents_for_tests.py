@@ -23,7 +23,7 @@ class TestAgent(Agent):
             if operation is not None:
                 operation(msg)
             else:
-                self.log(log_level=WARNING, msg="%s: don't know what to do with: %s" % (self.uuid, str(msg)))
+                self.log(level=WARNING, msg="%s: don't know what to do with: %s" % (self.uuid, str(msg)))
 
     def teardown(self):
         print("TestAgent running 'teardown'")
@@ -50,6 +50,6 @@ class WorkIntensiveAgent(Agent):
         for i in range(workload):
             j += i
         if LOG_LEVEL == DEBUG:
-            self.log(log_level=DEBUG,
+            self.log(level=DEBUG,
                      msg="Updating {}-{}: Update no: {}".format(self.__class__.__name__, self.name, self.total_updates))
         self.total_updates += 1
