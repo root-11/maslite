@@ -3,13 +3,17 @@ MasLite
 """
 from datetime import datetime
 from setuptools import setup
-from os import path
+from pathlib import Path
 
 v = datetime.now()
 __version__ = "{}.{}.{}.{}".format(v.year, v.month, v.day, v.hour * 3600 + v.minute*60 + v.second)
 
-this_directory = path.abspath(path.dirname(__file__))
-with open(path.join(this_directory, 'readme.md'), encoding='utf-8') as f:
+folder = Path(__file__).parent
+file = "readme.md"
+readme = folder / file
+assert isinstance(readme, Path)
+assert readme.exists(), readme
+with open(str(readme), encoding='utf-8') as f:
     long_description = f.read()
 
 
@@ -25,6 +29,8 @@ setup(
     long_description_content_type='text/markdown',
     keywords="multi agent system MAS",
     packages=["maslite"],
+    include_package_data=True,
+    data_files=[(".", ["license.md", "readme.md"])],
     platforms="any",
     install_requires=[],
     classifiers=[
@@ -36,3 +42,5 @@ setup(
         "Programming Language :: Python :: 3.6",
     ],
 )
+
+
