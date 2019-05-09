@@ -1,3 +1,6 @@
+[![Build Status](https://travis-ci.org/root-11/maslite.svg?branch=master)](https://travis-ci.org/root-/maslite.svg?branch=master)
+
+
 # MASlite
 A multi-agent platform contrived by [Bjorn Madsen](https://uk.linkedin.com/in/bmadsen)
 
@@ -13,6 +16,8 @@ MASlite is a simle python module for creating multi-agent simulations.
 - _Simple_ API: Only 3 modules to learn: Scheduler, Agent & Agent message
 - _Fast_: Handles up to 270 million messages per second
 - _Lightweight_: 52kB.
+
+It only has 3 components:
 
 - The scheduler (main loop)
   - handles pause and proceed with a single call.
