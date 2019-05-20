@@ -1,12 +1,50 @@
 from pathlib import Path
 from datetime import datetime
 import subprocess
+import hashlib
 
 
-v = datetime.now()
-version = "\"{}.{}.{}.{}\"".format(v.year, v.month, v.day, v.hour * 3600 + v.minute*60 + v.second)
+folder = Path(__file__).parent
 
-script = """# Maslite setup script created by package.py
+# find the sha256 of the files used for this build.
+maslite_packages = [folder / 'maslite' / "__init__.py",
+                    folder / 'license.md',
+                    folder / 'readme.md',
+                    folder / 'requirements.txt'
+                    ]
+
+sha = hashlib.sha3_256()
+for package_path in maslite_packages:
+    with open(str(package_path), mode='rb') as fi:
+        data = fi.read()
+        sha.update(data)
+
+current_build_tag = sha.hexdigest()
+
+# get the sha256 of the existing build.
+setup = folder / "setup.py"
+with open(str(setup), encoding='utf-8') as f:
+    lines = f.readlines()
+    for row in lines:
+        if "build_tag" in row:
+            a = row.find('"')+1
+            b = row.rfind('"')
+            last_build_tag = row[a:b]
+            break
+    else:
+        last_build_tag = 0
+
+# compare
+if current_build_tag == last_build_tag:
+    print("build already in setup.py")
+
+else:  # make a new setup.py.
+
+    v = datetime.now()
+    version = "\"{}.{}.{}.{}\"".format(v.year, v.month, v.day, v.hour * 3600 + v.minute*60 + v.second)
+
+    script = """# Maslite setup script created by package.py
+build_tag = \"{}\"
 from pathlib import Path
 from setuptools import setup
 
@@ -44,18 +82,14 @@ setup(
         "Programming Language :: Python :: 3.6",
     ],
 )
-""".format(version)
+""".format(current_build_tag, version)
+    with open(str(setup), mode='w', encoding='utf-8') as f:
+        f.write(script)
 
-folder = Path(__file__).parent
-file = "setup.py"
-setup = folder / file
-
-with open(setup, mode='w', encoding='utf-8') as f:
-    f.write(script)
-
-response = subprocess.Popen(["python", "setup.py", "sdist"], stdout=subprocess.PIPE)
-response.wait()
-return_code = response.returncode
-if return_code != 0:
-    print(response.stdout.read().decode())
-
+    response = subprocess.Popen(["python", "setup.py", "sdist"], stdout=subprocess.PIPE)
+    response.wait()
+    return_code = response.returncode
+    if return_code != 0:
+        print(response.stdout.read().decode())
+    else:
+        print("new setup.py created with build_tag {}".format(current_build_tag))

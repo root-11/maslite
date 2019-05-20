@@ -1,4 +1,5 @@
 # Maslite setup script created by package.py
+build_tag = "24e8f359f8677ac64aab1f373ccc49015f842ff5b51dc88005e4642e4dcfe2b5"
 from pathlib import Path
 from setuptools import setup
 
@@ -13,7 +14,7 @@ with open(str(readme), encoding='utf-8') as f:
 
 setup(
     name="MASlite",
-    version="2019.5.20.44501",
+    version="2019.5.20.48214",
     url="https://github.com/root-11/maslite",
     license="MIT",
     author="Bjorn Madsen",
