@@ -1,4 +1,11 @@
-# Maslite setup script created by package.py
+from pathlib import Path
+from datetime import datetime
+
+
+v = datetime.now()
+version = "\"{}.{}.{}.{}\"".format(v.year, v.month, v.day, v.hour * 3600 + v.minute*60 + v.second)
+
+script = """# Maslite setup script created by package.py
 from pathlib import Path
 from setuptools import setup
 
@@ -13,7 +20,7 @@ with open(str(readme), encoding='utf-8') as f:
 
 setup(
     name="MASlite",
-    version="2019.5.20.43667",
+    version={},
     url="https://github.com/root-11/maslite",
     license="MIT",
     author="Bjorn Madsen",
@@ -36,3 +43,12 @@ setup(
         "Programming Language :: Python :: 3.6",
     ],
 )
+""".format(version)
+
+folder = Path(__file__).parent
+file = "setup.py"
+setup = folder / file
+
+with open(setup, mode='w', encoding='utf-8') as f:
+    f.write(script)
+

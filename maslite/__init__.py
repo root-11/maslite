@@ -772,9 +772,10 @@ class Scheduler(Agent):
             self._log = logging.getLogger(self.__class__.__name__)
             self._log.setLevel(LOG_LEVEL)
             self._log.propagate = False
-            handler = logging.StreamHandler()
-            handler.setLevel(LOG_LEVEL)
-            self._log.addHandler(handler)
+            if not any(isinstance(h, logging.StreamHandler) for h in self._log.handlers):
+                handler = logging.StreamHandler()
+                handler.setLevel(LOG_LEVEL)
+                self._log.addHandler(handler)
             self.log(level=DEBUG, msg="Scheduler is running with uuid: {}".format(self.uuid))
         else:
             assert isinstance(logger, logging.Logger)
