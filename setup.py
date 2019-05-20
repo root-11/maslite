@@ -4,8 +4,8 @@ from setuptools import setup
 
 
 folder = Path(__file__).parent
-file = "readme.md"
-readme = folder / file
+filename = "readme.md"
+readme = folder / filename
 assert isinstance(readme, Path)
 assert readme.exists(), readme
 with open(str(readme), encoding='utf-8') as f:
@@ -13,7 +13,7 @@ with open(str(readme), encoding='utf-8') as f:
 
 setup(
     name="MASlite",
-    version="2019.5.20.43667",
+    version="2019.5.20.43826",
     url="https://github.com/root-11/maslite",
     license="MIT",
     author="Bjorn Madsen",

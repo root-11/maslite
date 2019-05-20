@@ -11,8 +11,8 @@ from setuptools import setup
 
 
 folder = Path(__file__).parent
-file = "readme.md"
-readme = folder / file
+filename = "readme.md"
+readme = folder / filename
 assert isinstance(readme, Path)
 assert readme.exists(), readme
 with open(str(readme), encoding='utf-8') as f:
