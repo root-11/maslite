@@ -771,6 +771,7 @@ class Scheduler(Agent):
         if logger is None:
             self._log = logging.getLogger(self.__class__.__name__)
             self._log.setLevel(LOG_LEVEL)
+            self._log.propagate = False
             handler = logging.StreamHandler()
             handler.setLevel(LOG_LEVEL)
             self._log.addHandler(handler)
