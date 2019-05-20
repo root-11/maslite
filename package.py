@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import datetime
+import subprocess
 
 
 v = datetime.now()
@@ -51,4 +52,10 @@ setup = folder / file
 
 with open(setup, mode='w', encoding='utf-8') as f:
     f.write(script)
+
+response = subprocess.Popen(["python", "setup.py", "sdist"], stdout=subprocess.PIPE)
+response.wait()
+return_code = response.returncode
+if return_code != 0:
+    print(response.stdout.read().decode())
 

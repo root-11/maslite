@@ -13,7 +13,7 @@ with open(str(readme), encoding='utf-8') as f:
 
 setup(
     name="MASlite",
-    version="2019.5.20.43826",
+    version="2019.5.20.44501",
     url="https://github.com/root-11/maslite",
     license="MIT",
     author="Bjorn Madsen",
