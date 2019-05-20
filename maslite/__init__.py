@@ -727,7 +727,7 @@ class Scheduler(Agent):
     """ The scheduler that handles updates of all agents."""
 
     def __init__(self, clock_speed=None, pause_if_idle=True,
-                 minimum_operating_frequency=1000):
+                 minimum_operating_frequency=1000, logger=None):
         """
         :param: clock_speed: None, float or int: the simulation clock speed.
         :param: pause_if_idle: Boolean.
@@ -768,9 +768,16 @@ class Scheduler(Agent):
                                 GetSubscribersMessage.__name__: self.get_subscriber_list
                                 })
 
-        self._log = logging.getLogger(self.__class__.__name__)
-        self._log.setLevel(LOG_LEVEL)
-        self.log(level=DEBUG, msg="Scheduler is running with uuid: {}".format(self.uuid))
+        if logger is None:
+            self._log = logging.getLogger(self.__class__.__name__)
+            self._log.setLevel(LOG_LEVEL)
+            handler = logging.StreamHandler()
+            handler.setLevel(LOG_LEVEL)
+            self._log.addHandler(handler)
+            self.log(level=DEBUG, msg="Scheduler is running with uuid: {}".format(self.uuid))
+        else:
+            assert isinstance(logger, logging.Logger)
+            self._log = logger
 
     def add(self, agent):
         """ Adds an agent to the scheduler
