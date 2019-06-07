@@ -1082,7 +1082,7 @@ class Scheduler(Agent):
                 if len(recipients) > 0:  # receiver is not in self.mailing_lists, so s/h/it might be moving.
                     self.send_to_recipients(msg=msg, recipients=recipients)
                 else:
-                    self.log(level=DEBUG, msg="%s is not registered on a mailing list." % receiver)
+                    self.log(level=DEBUG, msg="{} is not registered on a mailing list.".format(receiver))
             else:
                 self.log(level=WARNING,
                          msg="Discovered a non-AgentMessage in the inbox. The message is dumped.")

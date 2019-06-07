@@ -7,7 +7,7 @@ import hashlib
 folder = Path(__file__).parent
 
 # find the sha256 of the files used for this build.
-maslite_packages = [
+packages = [
     folder / 'maslite' / "__init__.py",
     folder / 'license.md',
     folder / 'readme.md',
@@ -15,7 +15,7 @@ maslite_packages = [
 ]
 
 sha = hashlib.sha3_256()
-for package_path in maslite_packages:
+for package_path in packages:
     with open(str(package_path), mode='rb') as fi:
         data = fi.read()
         sha.update(data)
