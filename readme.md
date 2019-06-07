@@ -516,16 +516,3 @@ Note: The clock_speed can be set as an argument in the schedulers `run` function
 
 ...
 
-### Loadbalancing.
-
-MASlite only makes one assumption: That it's the primary service on the
-hardware where it is running. 
-
-### MASlite running on multiple machines 
-
-Not implemented yet.
-
-### API access to every agent 
-
-Not implemented yet.
-
