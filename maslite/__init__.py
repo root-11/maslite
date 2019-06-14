@@ -1,6 +1,5 @@
 import time
 import logging
-# from uuid import uuid4
 from copy import deepcopy
 from collections import deque
 from itertools import count
@@ -14,10 +13,10 @@ INFO = logging.INFO
 DEBUG = logging.DEBUG
 NOTSET = logging.NOTSET
 
-LOG_LEVEL = logging.INFO
+LOG_LEVEL = logging.DEBUG
 
 
-class OutScaleException(Exception):
+class MasLiteException(Exception):
     pass
 
 
@@ -242,7 +241,7 @@ class Agent(object):
         self._time = 0  # the timestamp in the compute cycle.
         self.keep_awake = False  # this prevents the agent from entering sleep mode when there
         # are no new messages.
-        self._log = None  # The logger is added by the scheduler during "add(agent)".
+        self._logger = None  # The logger is added by the scheduler during "add(agent)".
 
     @property
     def uuid(self):
@@ -391,8 +390,8 @@ class Agent(object):
             msg = str(msg)
         assert isinstance(msg, str)
         try:
-            self._log.log(level=level, msg=msg)
-        except:
+            self._logger.log(level=level, msg=msg)
+        except Exception:
             # logger not instantiated by Scheduler
             print("logging not set: log message:", level, msg)
 
@@ -719,7 +718,7 @@ class AlarmMessage(AgentMessage):
         self.wake_up_message = alarm_message
 
 
-class SchedulerException(OutScaleException):
+class SchedulerException(MasLiteException):
     pass
 
 
@@ -769,17 +768,16 @@ class Scheduler(Agent):
                                 })
 
         if logger is None:
-            self._log = logging.getLogger(self.__class__.__name__)
-            self._log.setLevel(LOG_LEVEL)
-            self._log.propagate = False
-            if not any(isinstance(h, logging.StreamHandler) for h in self._log.handlers):
+            self._logger = logging.getLogger(self.__class__.__name__)
+            self._logger.setLevel(LOG_LEVEL)
+            self._logger.propagate = False
+            if not any(isinstance(h, logging.StreamHandler) for h in self._logger.handlers):
                 handler = logging.StreamHandler()
                 handler.setLevel(LOG_LEVEL)
-                self._log.addHandler(handler)
+                self._logger.addHandler(handler)
             self.log(level=DEBUG, msg="Scheduler is running with uuid: {}".format(self.uuid))
         else:
-            assert isinstance(logger, logging.Logger)
-            self._log = logger
+            self._logger = logger
 
     def add(self, agent):
         """ Adds an agent to the scheduler
@@ -791,7 +789,7 @@ class Scheduler(Agent):
             raise SchedulerException("Agent uuid already in usage.")
         self.agents[agent.uuid] = agent
         # give agent a child logger with name structure "Scheduler.AgentClass"
-        agent._log = logging.getLogger(name=self._log.name + '.' + agent.__class__.__name__)
+        agent._logger = self._logger
         if not agent.is_setup():
             self.process_subscribe_message(SubscribeMessage(agent, agent.uuid))
             self.process_subscribe_message(SubscribeMessage(agent, agent.__class__.__name__))
