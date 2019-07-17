@@ -386,7 +386,7 @@ class Scheduler(object):
         self._must_run_until_alarm_expires = False
 
         self._quit = False
-        self._operating_frequency = 1_000
+        self._operating_frequency = 1000
 
         if logger is None:
             self._logger = logging.getLogger(self.__class__.__name__)
