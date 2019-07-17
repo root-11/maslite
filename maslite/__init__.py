@@ -173,6 +173,7 @@ class Agent(object):
         :return: None
         """
         assert isinstance(msg, AgentMessage), "sending messages that aren't based on AgentMessage's wont work"
+        assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
         self._scheduler_api.mail_queue.append(msg)
 
     @property
@@ -279,7 +280,7 @@ class Agent(object):
         assert isinstance(self._scheduler_api, Scheduler)
         self._scheduler_api.log(level, msg)
 
-    def set_alarm(self, alarm_time, alarm_message=None, relative=False, drop_alarm_if_idle=True):
+    def set_alarm(self, alarm_time, alarm_message=None, relative=False, ignore_alarm_if_idle=True):
         """ to set alarms
 
         :param alarm_time: time as timestamp() (float)
@@ -287,22 +288,20 @@ class Agent(object):
         :param relative: boolean (1 second later is relative)
             True: alarm goes off at time.time() + alarm_time
             False: alarm goes off at alarm_time (must be greater than time.time() )
-        :param drop_alarm_if_idle: boolean, if True, the scheduler will ignore that an alarm was set,
+        :param ignore_alarm_if_idle: boolean, if True, the scheduler will ignore that an alarm was set,
         if there are no more messages being exchanged.
         """
-        if isinstance(alarm_time, datetime.datetime):
-            raise ValueError("Expected float or int, got datetime. Use alarm_time.timestamp() to get float")
-        assert isinstance(alarm_time, (float, int))
+        assert isinstance(alarm_time, (float, int)), "expected float or int time. Use time.time() or datetime.datetime.now().timestamp()"
         now = time.time()
         if relative:
             alarm_time = now + alarm_time
 
         if alarm_time < now:
             raise ValueError("Alarm time is in the past")
-        assert isinstance(self._scheduler_api, Scheduler)
+        assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
         self._scheduler_api.set_alarm(uuid=self.uuid, alarm_time=alarm_time,
                                       alarm_message=alarm_message,
-                                      drop_alarm_if_idle=drop_alarm_if_idle)
+                                      ignore_alarm_if_idle=ignore_alarm_if_idle)
 
     def subscribe(self, topic):
         """
@@ -319,7 +318,7 @@ class Agent(object):
         topic=AgentMessage.__class__.__name__
 
         """
-        assert isinstance(self._scheduler_api, Scheduler)
+        assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
         self._scheduler_api.subscribe(uuid=self.uuid, topic=topic)
 
     def unsubscribe(self, topic=None):
@@ -328,23 +327,31 @@ class Agent(object):
 
         Note that all agents automatically unsubscribe at teardown.
         """
-        assert isinstance(self._scheduler_api, Scheduler)
+        assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
         self._scheduler_api.unsubscribe(uuid=self.uuid, topic=topic)
+
+    def get_subscriber_list(self, topic):
+        assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
+        return self._scheduler_api.get_subscriber_list(topic)
+
+    def get_subscription_topics(self):
+        assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
+        return self._scheduler_api.get_subscription_topics()
 
     def pause(self):
         """ Tells the scheduler to stop at the end of the update cycle. """
-        assert isinstance(self._scheduler_api, Scheduler)
+        assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
         self._scheduler_api.pause()
 
     def add(self, agent):
         """ Adds the agent to the scheduler. """
         assert isinstance(agent, Agent)
-        assert isinstance(self._scheduler_api, Scheduler)
+        assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
         self._scheduler_api.add(agent)
 
     def remove(self, uuid):
         """ Removes the agent from the scheduler. """
-        assert isinstance(self._scheduler_api, Scheduler)
+        assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
         self._scheduler_api.remove(uuid)
 
 
@@ -354,13 +361,13 @@ class SchedulerException(MasLiteException):
 
 class Alarm(object):
     """ Data structure for the Schedulers alarm"""
-    __slots__ = ['uuid', 'alarm_time', 'alarm_message', 'drop_alarm_if_idle']
+    __slots__ = ['uuid', 'alarm_time', 'alarm_message', 'ignore_alarm_if_idle']
 
-    def __init__(self, uuid, alarm_time, alarm_message, drop_alarm_if_idle):
+    def __init__(self, uuid, alarm_time, alarm_message, ignore_alarm_if_idle):
         self.uuid = uuid
         self.alarm_time = alarm_time
         self.alarm_message = alarm_message
-        self.drop_alarm_if_idle = drop_alarm_if_idle
+        self.ignore_alarm_if_idle = ignore_alarm_if_idle
 
 
 class Scheduler(object):
@@ -439,7 +446,7 @@ class Scheduler(object):
             self.has_keep_awake.remove(agent.uuid)
         del self.agents[agent.uuid]
 
-    def run(self, seconds=None, iterations=None, pause_if_idle=True):
+    def run(self, seconds=None, iterations=None, pause_if_idle=True, clear_alarms_at_end=True):
         """ The main 'run' operation of the Scheduler.
 
         :param seconds: float, int, None: optional number of real-time seconds to run.
@@ -449,6 +456,7 @@ class Scheduler(object):
         the scheduler's clock will tick along as any other real-time system.
         If pause_if_idle is set to True, the scheduler will pause once the message queue
         is idle.
+        :param clear_alarms_at_end: boolean: deletes any alarms if paused.
 
         Depending on which of 'seconds' or 'iterations' occurs first, the simulation
         will be paused.
@@ -461,20 +469,17 @@ class Scheduler(object):
         if isinstance(iterations, int) and iterations > 0:
             iterations_to_halt = abs(iterations)
 
-        assert pause_if_idle in (False, True)
+        assert isinstance(pause_if_idle, bool)
+        assert isinstance(clear_alarms_at_end, bool)
 
         # check all agents for messages (in case that someone on the outside has added messages).
-        updated_agents = {agent.uuid for agent in self.agents.values() if agent.inbox}
+        updated_agents = {agent.uuid for agent in self.agents.values() if agent.inbox or agent.keep_awake}
         self.needs_update.update(updated_agents)
+        self.process_mail_queue()
 
         # The main loop of the scheduler:
         self._quit = False
-        while not self._quit:
-            if iterations_to_halt is not None:
-                if iterations_to_halt > 0:
-                    iterations_to_halt -= 1
-                if iterations_to_halt == 0:
-                    self._quit = True
+        while not self._quit:  # _quit is set by method self.pause() and can be called by any agent.
 
             # update the agents. process.
             self.needs_update.update(self.has_keep_awake)
@@ -491,15 +496,30 @@ class Scheduler(object):
             self.check_alarms()
 
             # distribute messages or sleep.
-            idle = len(self.mail_queue) == 0 and self._must_run_until_alarm_expires is False
+            no_messages = len(self.mail_queue) == 0
             if self.mail_queue:
                 self.process_mail_queue()
-            if idle and pause_if_idle:
-                return
-            if start_time is not None and start_time + seconds > time.time():
-                return
-            if idle == 0 and not pause_if_idle:
-                time.sleep(1 / self._operating_frequency)
+
+            # determine whether to stop:
+            if start_time is not None:
+                now = time.time()
+                if now >= (start_time + seconds):
+                    self._quit = True
+
+            if iterations_to_halt is not None:
+                if iterations_to_halt > 0:
+                    iterations_to_halt -= 1
+                if iterations_to_halt == 0:
+                    self._quit = True
+
+            if no_messages:
+                if self._must_run_until_alarm_expires is True:
+                    time.sleep(1 / self._operating_frequency)
+                elif pause_if_idle:
+                    self._quit = True
+
+        if clear_alarms_at_end:
+            self.alarms.clear()
 
     def process_mail_queue(self):
         """
@@ -544,13 +564,12 @@ class Scheduler(object):
     def pause(self):
         self._quit = True
 
-    def set_alarm(self, uuid, alarm_time, alarm_message, drop_alarm_if_idle):
+    def set_alarm(self, uuid, alarm_time, alarm_message, ignore_alarm_if_idle):
         now = time.time()
-        if alarm_time < now:
-            raise ValueError("Alarm time is in the past")
-        self.alarms.append(Alarm(uuid, alarm_time, alarm_message, drop_alarm_if_idle))
+        assert alarm_time > now, "Alarm time is in the past"
+        self.alarms.append(Alarm(uuid, alarm_time, alarm_message, ignore_alarm_if_idle))
         self.alarms.sort(key=lambda x: x.alarm_time)
-        if drop_alarm_if_idle is False:
+        if ignore_alarm_if_idle is False:
             self._must_run_until_alarm_expires = True
 
     def check_alarms(self):
@@ -559,7 +578,7 @@ class Scheduler(object):
         if not expired_alarms:
             return
         self.alarms = [a for a in self.alarms if now < a.alarm_time]
-        self._must_run_until_alarm_expires = any((a for a in self.alarms if a.drop_alarm_if_idle is False))
+        self._must_run_until_alarm_expires = any((a for a in self.alarms if a.ignore_alarm_if_idle is False))
         for alarm in expired_alarms:
             assert isinstance(alarm, Alarm)
             agent = self.agents.get(alarm.uuid, None)
@@ -597,19 +616,16 @@ class Scheduler(object):
         :param uuid: agent uuid
         :param topic: str, if None, all topics are unsubscribed from.
         """
-        if topic is None:
-            for topic in [t for t in self.mailing_lists.keys()]:
-                if uuid in self.mailing_lists[topic]:
-                    self.mailing_lists[topic].remove(uuid)
-                if len(self.mailing_lists[topic]) == 0:
-                    del self.mailing_lists[topic]
-        else:
-            for listed_topic in (t for t in self.mailing_lists.keys()):
-                if topic == listed_topic:
-                    if uuid in self.mailing_lists[topic]:
-                        self.mailing_lists[topic].remove(uuid)
-                    if len(self.mailing_lists[topic]) == 0:
-                        del self.mailing_lists[topic]
+        if topic is not None:
+            self.mailing_lists[topic].remove(uuid)
+            if len(self.mailing_lists[topic]) == 0:
+                del self.mailing_lists[topic]
+            return
+
+        for topic in [t for t in self.mailing_lists.keys()]:
+            self.mailing_lists[topic].discard(uuid)
+            if len(self.mailing_lists[topic]) == 0:
+                del self.mailing_lists[topic]
 
     def get_subscriber_list(self, topic):
         """ Returns the list of subscribers of a particular topic."""
