@@ -130,7 +130,6 @@ class Agent(object):
         :param uuid: None (default). Should only be set for inspection purposes.
         """
         self.inbox = deque()  # when using self.receive() we get the messages from here
-        self.outbox = deque()  # here we post messages when using self.send(msg)
         if uuid is None:
             self._uuid = next(Agent.uuid_counter)  # this is our worldwide unique id.
         else:
@@ -174,7 +173,7 @@ class Agent(object):
         :return: None
         """
         assert isinstance(msg, AgentMessage), "sending messages that aren't based on AgentMessage's wont work"
-        self.outbox.append(msg)
+        self._scheduler_api.mail_queue.append(msg)
 
     @property
     def messages(self):
@@ -501,16 +500,10 @@ class Scheduler(object):
             for uuid in self.needs_update:
                 agent = self.agents[uuid]
                 agent.update()
-                while agent.outbox:  # Send and receive the agents messages
-                    self.mail_queue.append(agent.outbox.popleft())
                 if agent.keep_awake:
-                    if agent.uuid in self.has_keep_awake:
-                        pass
-                    else:
-                        self.has_keep_awake.add(agent.uuid)
-                elif not agent.keep_awake:
-                    if agent.uuid in self.has_keep_awake:
-                        self.has_keep_awake.remove(agent.uuid)
+                    self.has_keep_awake.add(agent.uuid)
+                else:
+                    self.has_keep_awake.discard(agent.uuid)
             self.needs_update.clear()
 
             # check any timed alarms.
