@@ -309,11 +309,13 @@ def ping_pong_test():
 
 
 def scheduling_tests():
-    pass
+    from demos.scheduling import test01
+    test01()
+
 
 def auction_tests():
-    pass
-
+    from demos.auction_model import test06
+    test06()
 
 
 def doall():
