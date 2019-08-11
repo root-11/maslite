@@ -70,7 +70,7 @@ The user can thereby create an agent using just:
     class myAgent(Agent):
         def __init__(self):
             super().__init__()
-            self.operations.update({HelloMessage.__name__: self.hello})
+            self.operations[HelloMessage.__name__] = self.hello
         
         def update(self):
             while self.messages:
@@ -88,7 +88,8 @@ The user can thereby create an agent using just:
 That simple!
 
 The dictionary `self.operations` which is inherited from the `Agent`-class
-is updated with `{HelloMessage.__name__: self.hello}`. `self.operations` thereby acts 
+is updated with `HelloMessage.__name__` pointing to the function `self.hello`. 
+`self.operations` thereby acts 
 as a pointer for when a `HelloMessage` arrives, so when the agents 
 update function is called, it will get the topic from the message's and 
 point to the function `self.hello`, where `self.hello` in this simple
@@ -127,7 +128,7 @@ others:
             self.priority_messages.extend(normal_messages)
             
             # 3. Next we process them as usual:
-            while len(self.priority_messages) > 0:
+            while self.priority_messages:
                 msg = self.priority_messages.popleft()
                 operation = self.operations.get(msg.topic)
                 if operation is not None:
@@ -167,31 +168,21 @@ There are also no requirements for the agent to be programmed in procedural,
 functional or object oriented manner. Doing that is completely up to the 
 user of MASlite.
 
-    class MyAgent(Agent):
-        def __init__(self):
+    class Example(Agent):
+        def __init__(self, db_connection):
             super().__init__()
             # add variables here.
+            self._is_setup = False
+            self.db_connection = db_connection
             
             # remember to register topics and their functions:
             self.operations.update({"topic x": self.x,
                                     "topic y": self.y,
                                     "topic ...": self....})
-        
-        def setup(self):
-            # add own setup operations here.
-            
-            # register topics with the mailman..!
-            # naive:
-            for topic in self.operations.keys():
-                self.subscribe(topic)
-            # selective
-            for topic in ["topic x","topic y","topic ..."]:
-                self.subscribe(topic)
-        
-        def teardown(self):
-            # add own teardown operations here.
             
         def update(self):
+            assert self._is_setup
+
             # do something before reading messages
             self.action_before_processing_messages()
         
@@ -211,6 +202,11 @@ user of MASlite.
         # `Agent`-class. If the `update` function should react on these,
         # the topic of the message must be in the self.operations dict.
         
+        def setup(self):
+            self._is_setup = True
+            # add own setup operations here.
+            self.subscribe(self.__class__.__name__)
+        
         def action_before_processing_messages(self)
             # do something.
             
@@ -226,7 +222,12 @@ user of MASlite.
             self.send(response)
         
         def y(msg):
-            # ...
+            with db_connection as db.:
+                db.somefield.update(time.time())
+                                
+        def teardown(self):
+            # add own teardown operations here.
+            self.db_connection.close()
         
 
 ### Messages
@@ -271,9 +272,10 @@ function(s):
         def state(self):
             return self._states[self._state]
 
-The class `DatabaseUpdateMessage` is subclassed from the `AgentMessage` so that the basic message
-handling properties are available for the DatabaseUpdateMessage. This helps the user as s/he doesn't
-need to know anything about how the message handling system works.
+The class `DatabaseUpdateMessage` is subclassed from the `AgentMessage` so that 
+the basic message handling properties are available for the DatabaseUpdateMessage. 
+This helps the user as s/he doesn't need to know anything about how the message 
+handling system works.
 
 The init function requires a sender, which normally defaults to the agent's `self`.
 The `AgentMessage` knows that if it gets an agent in it's `__init__` call, it will
@@ -308,69 +310,37 @@ __Message Conventions__:
 * Messages which have `None` as receiver are considered broadcasts. The logic is 
 that if you don't know who exactly you are sending it to, send it it to `None`, and
 you might get a response if any other agent react on the topic of the message.
-The magic behind the scenes is handled by the schedulers mailmanager (`mailman`) 
-which keeps track of all topics that any `Agent` subscribes to. 
+The magic behind the scenes is handled by the schedulers mail manager 
+which keeps track of all topics that any `Agent` subscribes to.
 By convention the topic of the message should be `self.__class__.__name__`.
 
 * Messages which have a `class.__name__` as receiver, will be received by all agents
-of that class.
+of that class. This is configured when the agent is added to the scheduler in `s.add(agent)` 
 
 * Messages which have a particular UUID as receiver, will be received by the agent 
 holding that UUID. If anyone other agent is tracking that UUID, by subscribing to
 it, then the tracking agent will receive a `deepcopy` of the message, and not the 
-original. 
+original. If the message has a `copy` method, this will be used instead of deepcopy. 
 
 * To get the UUID of the sender the method `msg.sender` is available.
 
-* To subscribe/unsubscribe to messages the agents should use the `subscribe`
+* To subscribe/unsubscribe during runtime the agents should use the `subscribe`
 function directly.
-
-These methods are run when the agent is added (`setup`) to, or removed from (`teardown`), the 
-scheduler. The internal operation of the agents `run` method guarantees this:
-
-    def run(self):
-        """ The main operation of the Agent. """
-        if not self.is_setup():
-            self.setup()
-        if not self._quit:
-            self.update()
-        if self._quit:
-            self.teardown()
-
-The can extend the setup methods either by writing their own `self.setup`-method 
-(_recommended approach_).
 
 
 ### How to load data from a database connection 
 
 When agents are added to the scheduler `setup` is run.
-When agents are removed from MASlite `teardown` is run.
+When agents are removed from `teardown` is run.
 
-if agents are added and removed iteratively, they will load their 
+if agents are added and removed iteratively, they should load their 
 state during `setup` and store it during `teardown` from some database. 
 It is not necessary to let the scheduler know where the database is. 
 The agents can keep track of this themselves. 
 
-Though the user might find it attractice to use  `uuid` to identify,
-a particular `Agent` the user should keep 
-in mind that the UUID is unique with __every__ creation and destruction 
-of the agent. To expect or rely on the UUID to be persistent would lead 
-to logical fallacy.
-
-The user must use`setup` and `teardown` and include a naming convention 
-that assures that the agent doesn't depend on the UUID. For example:
-
-    # get the data from the previously stored agent
-    begin transaction:
-        id = SELECT agent_id FROM stored_agents WHERE agent_alive == False LIMIT 1;
-        UPDATE stored_agents WHERE agent_id == id VALUES (agent_live = TRUE);
-        properties = SELECT * FROM stored_agents WHERE agent_id == id;
-    end transaction;
-    # Finally let the agent load the properties:
-    self.load(properties) 
-
-An approach such as above assures that the agent that is revived has no 
-dependency to the UUID.
+Though the user might find it attractive to use `uuid` to identify, a particular 
+`Agent` the user should set the `uuid` in `super().__init__(uuid="this")`, as a the
+`uuid` otherwise will be given be the scheduler.
 
 ### Getting started
 
@@ -379,9 +349,10 @@ To get started only 3 steps are required:
 Step 1. setup a scheduler
 
     >>> from maslite import Agent, Scheduler
-    >>> s = Scheduler(number_of_multi_processors=0)
+    >>> s = Scheduler()
     
-Step 2. create agents which have `setup`, `teardown` and `update` methods.
+Step 2. create agents which have an `update` method and (optionally)
+a `setup` and `teardown`.
 
     >>> class MyAgent(Agent):
     ...     def __init__(self):
@@ -395,22 +366,26 @@ Step 2. create agents which have `setup`, `teardown` and `update` methods.
         
     >>> m = MyAgent()
     >>> s.add(m)
-    2017-02-11 15:05:27,171 - DEBUG - Registering agent MyAgent 331228774898081874557512062996431768652
 
 Step 3. run the scheduler (nothing happens here)
 
     >>> s.run(pause_if_idle=True)
-    2017-02-11 15:09:20,120 - DEBUG - Pausing Scheduler, use 'run()' to continue. Use 'stop()' to shutdown remote processors.
 
 Other methods such as `s.run(seconds=None, iterations=None, 
-pause_if_idle=False)` can be applied as the user,
-finds it suitable.
+pause_if_idle=False)` can be applied as the user finds it suitable.
 
-Step 4. call the schedulers `stop` method to gracefully execute the `teardown` method
-on all agents as a part of the shutdown procedure.
+Step 4. to stop the scheduler there are the following options:
 
-    >>> s.stop()
-    2017-02-11 15:09:37,055 - DEBUG - Scheduler shutdown complete.
+1. Let it run until idle (most common)
+2. Run for N seconds (suitable for real-time systems), 
+3. Run for N iterations (suitable for interrupt checking)
+
+Then leave the scheduler (and all the agents) in their set state, for
+example to read the state of particular agents; and finally 
+execute the `teardown` method, on all agents in a loop:
+
+    >>> for uid, agent in s.agents.items():
+    ...     agent.teardown()
 
 
 ### Debugging with pdb or breakpoints (PyCharm)
@@ -445,74 +420,6 @@ The reason it is recommended to use the alarm instead of setting
 at the level of message exchange. Remember that the internal state of 
 the agents should always be hidden whilst the  messages should be 
 indicative of any activity. 
-
-### Adjust runspeed using the clock.
-
-The clock is a powertool in MASlite that should be studied. 
-The clock has the ability to:
-
-* run at speeds `-inf`; `+inf` and any floating point progressing in between. 
-
-* start at time `-inf`; `+inf` and any floating point time in between.
-
-The clock is set using the api calls to the clock:
-
-    >>> s = Scheduler()
-    2017-02-11 15:15:00,197 - INFO - Scheduler is running with uuid: 206586991924651126011034509456004484857
-    2017-02-11 15:15:00,197 - DEBUG - Registering agent Clock 237028863335333747268219642853960174161
-    2017-02-11 15:15:00,197 - DEBUG - Registering agent MailMan 108593288939288121173991719827939198422
-    >>> s.now()
-    0
-    >>> s.clock.time = 1000
-    >>> s.now()
-    1000
-    >>> s.run(seconds=5)
-    2017-02-11 15:16:49,395 - DEBUG - Pausing Scheduler, use 'run()' to continue. Use 'stop()' to shutdown remote processors.
-    >>> s.now()
-    1005
-    >>> s.clock.clock_speed = 200
-    >>> s.now()
-    1005
-    >>> s.run(seconds=5)
-    2017-02-11 15:17:41,355 - DEBUG - Pausing Scheduler, use 'run()' to continue. Use 'stop()' to shutdown remote processors.
-    >>> s.now()
-    2005
-    >>> s.now()
-    2005
-    
-
-In the calls (above) the scheduler first sets the time to `1000` (whatever that is).
-using `s.clock.time`. Next it sets the clock speed using `s.clock.clock_speed`
-to 200 times real-time
-
-
-1. `clock.time = `__time in seconds__. Typically time is set to time since 1970-01-01T00:00:00.000000 - the UNIX epoch - using `time.time()`
-2. `clock.clock_speed = 1.000000`
-
-If the clock is set to run with `clock.clock_speed = None`, the scheduler
-will ask the clock to progress in jumps, so which behaves like follows: (pseudo code):
-
-    if Clock.clock_speed is None:
-        if not mailman.messages:
-            if self.pending_tasks() == 0:
-                Ask clock to set time to the time of the next event.
-            else: wait for multiprocessor to return computed agent.
-        else: continue until no new messages
-    else: continue clock as normal.
-
-To adjust the timing during a simulation (for whatever reason), the 
-scheduler should be primed with messages:
-
-1. run at maximum speed: `self.set_new_clock_speed_as_timed_event(start_time=now(), speed=None)`
-2. set clock to 10x speed 1 hour into the simulation: `set_runtime(start_time=now()+1*60*60, speed=10)` This will take 6 minutes in real-time.
-3. set the clock to 1x (real-time) speed 3 hours into the simulation: `set_runtime(start_time=now()+3*60*60, speed=1)` This will take 1 hour in real time.
-4. set clock to 10x speed 4 hour into the simulation: `set_runtime(start_time=now()+4*60*60, speed=10)`
-5. set the clock to 'None' to run as fast as possible for the rest of the simulation: `set_runtime(start_time=now()+6*60*60, speed=None)`
-
-Note: The clock_speed can be set as an argument in the schedulers `run` function:
-
-    Scheduler.run(seconds=None, iterations=None, pause_if_idle=False,
-                  clock_speed=1.0)
 
 ...
 

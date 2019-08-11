@@ -82,11 +82,8 @@ def basic_agent_tests():
     m3 = a.receive()
     assert m3 is None
 
-    try:
-        a.setup()
-        assert False
-    except NotImplementedError:
-        assert True
+    assert hasattr(a, 'setup')
+    assert callable(a.setup)
 
     try:
         a.update()
@@ -94,11 +91,8 @@ def basic_agent_tests():
     except NotImplementedError:
         assert True
 
-    try:
-        a.teardown()
-        assert False
-    except NotImplementedError:
-        assert True
+    assert hasattr(a, 'teardown')
+    assert callable(a.teardown)
 
     try:
         a.set_alarm(1, None, True, True)
@@ -116,11 +110,10 @@ def basic_agent_tests():
 def basic_agent_tests_add_to_scheduler():
     s = Scheduler()
     a = Agent()
-    try:
-        s.add(a)
-        raise NotImplementedError("! Agent has no setup method.")
-    except NotImplementedError:
-        assert True
+    assert callable(a.setup)
+    s.add(a)
+    assert callable(a.teardown)
+    s.remove(a)
 
     a = TestAgent()
     s.add(a)

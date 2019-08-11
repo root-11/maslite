@@ -224,7 +224,7 @@ class Agent(object):
                 for topic in self.operations:
                     self.subscribe(topic)
         """
-        raise NotImplementedError("derived classes must implement a setup method")
+        pass
 
     def teardown(self):
         """Users can implement this teardown method for shutting down the kernel agent.
@@ -232,7 +232,7 @@ class Agent(object):
         ! Runs automatically when the agent is removed from the scheduler !
 
         """
-        raise NotImplementedError("derived classes must implement a update method")
+        pass
 
     def update(self):
         """ Users must implement the update method using:
@@ -411,7 +411,6 @@ class Scheduler(object):
         if agent.uuid in self.agents:
             raise SchedulerException("Agent uuid already in usage.")
         self.agents[agent.uuid] = agent
-        # give agent a child logger with name structure "Scheduler.AgentClass"
         agent._scheduler_api = self
         self.subscribe(agent.uuid, topic=agent.uuid)
         self.subscribe(agent.uuid, topic=agent.__class__.__name__)
