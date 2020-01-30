@@ -8,7 +8,7 @@ script:
 
 matrix:
   include:
-    - python: 3
+    - python: 3.5
       before_install:
         - pip install coverage
         - pip install codecov
