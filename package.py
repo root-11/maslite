@@ -11,7 +11,6 @@ packages = [
     folder / 'maslite' / "__init__.py",
     folder / 'license.md',
     folder / 'readme.md',
-    folder / 'requirements.txt'
 ]
 
 sha = hashlib.sha3_256()

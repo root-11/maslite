@@ -1,7 +1,35 @@
 language: python
-python:
-  - "3.5"
-  - "3.6"
+dist: xenial
 
 install: python setup.py install
-script: nosetests .
+script:
+  - nosetests --with-coverage ./tests
+  - codecov --token=b1f050d7-eaab-49a5-a79c-50b37bef6ab1
+
+matrix:
+  include:
+    - python: 3
+      before_install:
+        - pip install coverage
+        - pip install codecov
+        - pip install -r requirements.txt
+
+    - python: 3.6
+      before_install:
+        - pip install coverage
+        - pip install codecov
+        - pip install -r requirements.txt
+
+    - python: 3.7
+      before_install:
+        - pip install coverage
+        - pip install codecov
+        - pip install -r requirements.txt
+
+    - python: 3.8
+      before_install:
+        - pip install coverage
+        - pip install codecov
+        - pip install -r requirements.txt
+
+
