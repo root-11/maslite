@@ -12,24 +12,20 @@ matrix:
       before_install:
         - pip install coverage
         - pip install codecov
-        - pip install -r requirements.txt
 
     - python: 3.6
       before_install:
         - pip install coverage
         - pip install codecov
-        - pip install -r requirements.txt
 
     - python: 3.7
       before_install:
         - pip install coverage
         - pip install codecov
-        - pip install -r requirements.txt
 
     - python: 3.8
       before_install:
         - pip install coverage
         - pip install codecov
-        - pip install -r requirements.txt
 
 
