@@ -311,15 +311,3 @@ def auction_tests():
     test06()
 
 
-def doall():
-    cnt = 0  # counter of tests.
-    for k, v in sorted(globals().items()):
-        if "test" in k and callable(v):
-            v()
-            cnt += 1
-            print("{} done".format(k))
-    print("Ran {} tests with success.".format(cnt))
-
-
-if __name__ == "__main__":
-    doall()
