@@ -66,4 +66,4 @@ else:  # make a new setup.py.
         print(response.stdout.read().decode())
     else:
         print("new setup.py created with build_tag {}".format(current_build_tag))
-        print(">>> next: run: twine upload dist\\MASlite-<THE SPECIFIC PACKAGE>")
+        print(r"next: run: twine upload dist\MASlite-{}.tar.gz".format(version[1:-1]))
