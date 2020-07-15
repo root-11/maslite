@@ -1,6 +1,7 @@
 [![Build Status](https://travis-ci.org/root-11/maslite.svg?branch=master)](https://travis-ci.org/root-11/maslite)
 [![Code coverage](https://codecov.io/gh/root-11/maslite/branch/master/graph/badge.svg)](https://codecov.io/gh/root-11/maslite)
-
+[![Downloads](https://pepy.tech/badge/maslite)](https://pepy.tech/project/maslite)
+[![Downloads](https://pepy.tech/badge/maslite/month)](https://pepy.tech/project/maslite/month)
 
 
 # MASlite
