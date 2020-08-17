@@ -28,7 +28,7 @@ class TestAgent(Agent):
         self.count_teardowns += 1
 
 
-def basic_message_tests():
+def test_message():
     msg = AgentMessage(1)
     assert msg.sender == 1
     assert msg.receiver is None
@@ -48,7 +48,7 @@ def basic_message_tests():
         assert True
 
 
-def basic_agent_tests():
+def tests_message_exchange():
     a = Agent()
     assert isinstance(a.inbox, deque)
     assert a.uuid is not None
@@ -107,7 +107,7 @@ def basic_agent_tests():
         assert True
 
 
-def basic_agent_tests_add_to_scheduler():
+def tests_add_to_scheduler():
     s = Scheduler()
     a = Agent()
     assert callable(a.setup)
@@ -239,6 +239,26 @@ def basic_agent_tests_add_to_scheduler():
     a.log(msg="test done")
 
 
+def test_basic_message_abuse():
+    s = Scheduler()
+    a = Agent(uuid=1)
+    b = Agent(uuid=2)
+    c = Agent(uuid=3)
+    for i in [a, b, c]:
+        s.add(i)
+        i.subscribe('test')
+
+    with open(__file__, 'r') as fo:
+        msg = AgentMessage(a, None, topic='test')
+        msg.content = fo
+        a.send(msg)
+        try:
+            s.process_mail_queue()
+            assert False, "sending an open file handle is not permitted."
+        except SchedulerException:
+            assert True
+
+
 class PingPongBall(AgentMessage):
     def __init__(self, sender, receiver, topic='ping'):
         super().__init__(sender=sender, receiver=receiver, topic=topic)
@@ -287,7 +307,7 @@ class PingPongPlayer(Agent):
         self.send(ball)
 
 
-def ping_pong_test():
+def test_ping_pong_tests():
     s = Scheduler()
     player_a = PingPongPlayer()
     player_b = PingPongPlayer()
@@ -301,12 +321,12 @@ def ping_pong_test():
     assert player_b.outcome != "won!"
 
 
-def scheduling_tests():
+def test_scheduling_demo():
     from demos.scheduling import test01
     test01()
 
 
-def auction_tests():
+def test_auction_demo():
     from demos.auction_model import test06
     test06()
 

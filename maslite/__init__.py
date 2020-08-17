@@ -558,7 +558,14 @@ class Scheduler(object):
             if len(recipients) == 1:
                 agent.inbox.append(msg)
             else:
-                agent.inbox.append(msg.copy())  # deepcopy is used to prevent that anyone modifies a shared object...
+                try:
+                    agent.inbox.append(msg.copy())
+                except Exception as e:
+                    m = """
+Message could not be copied:\n\t{}\ncausing exception:\n{}. 
+Please check that the contents in the message is decoupled from other objects.
+""".format(str(msg), str(e))
+                    raise SchedulerException(m)
 
     def pause(self):
         self._quit = True
