@@ -197,7 +197,7 @@ def tests_add_to_scheduler():
     start = time.time()
     s.run(seconds=0.30, pause_if_idle=False)
     end = time.time()
-    assert 0.295 < end - start < 0.305
+    assert 0.295 < end - start < 0.315, end-start
 
     b.subscribe(topic="magic")
     m5 = AgentMessage(sender=a, topic="magic")
