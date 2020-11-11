@@ -28,4 +28,5 @@ matrix:
         - pip install coverage
         - pip install codecov
 
+    - python: pypy3
 
