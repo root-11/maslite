@@ -1,8 +1,8 @@
-import time, datetime
+import time
 import logging
-from copy import deepcopy
-from collections import deque
+from collections import deque, defaultdict
 from itertools import count
+from bisect import insort
 
 CRITICAL = logging.CRITICAL
 FATAL = CRITICAL
@@ -18,9 +18,6 @@ LOG_LEVEL = logging.DEBUG
 
 class MasLiteException(Exception):
     pass
-
-
-uuid_counter = count(1)
 
 
 class AgentMessage(object):
@@ -45,7 +42,6 @@ class AgentMessage(object):
         if topic is None:
             topic = self.__class__.__name__
         self._topic = topic  # the keyword that the receiver should react upon.
-        self._uuid = next(uuid_counter)
 
     def __str__(self):
         return "From -> To : {} -> {} Topic: {}".format(self.sender, self.receiver, self.topic)
@@ -96,7 +92,7 @@ class AgentMessage(object):
         """
         :return: deep copy of the object.
         """
-        return deepcopy(self)
+        raise NotImplementedError("subclasses must implement a suitable copy method.")
 
     @property
     def topic(self):
@@ -108,17 +104,6 @@ class AgentMessage(object):
     @topic.setter
     def topic(self, topic):
         self._topic = topic
-
-    @property
-    def uuid(self):
-        """
-        :return: returns the UUID of the message.
-        """
-        return self._uuid
-
-    @uuid.setter
-    def uuid(self, value):
-        raise ValueError("UUID is permanent throughout the messages' lifetime and cannot be set after instantiation.")
 
 
 class Agent(object):
@@ -146,8 +131,7 @@ class Agent(object):
     @property
     def uuid(self):
         """
-        :return: Returns the UUID of the agent. This is guaranteed to be volatile and unique.
-        No two runs of the same simulation will have agents with the same UUID.
+        :return: Returns the UUID of the agent.
 
         beginner errors:
         Q: Agent does not have attribute "uuid".
@@ -160,10 +144,10 @@ class Agent(object):
         raise ValueError("UUID cannot be set once the object has been instantiated")
 
     def __str__(self):
-        return "<{}> uuid: {}".format(self.__class__.__name__, self._uuid)
+        return f"{self.__class__.__name__}({self.uuid})"
 
     def __repr__(self):
-        return "<{}> uuid: {}".format(self.__class__.__name__, self._uuid)
+        return f"{self.__class__.__name__}({self.uuid})"
 
     def send(self, msg):
         """ The only method for sending messages in the system.
@@ -248,9 +232,10 @@ class Agent(object):
             if operation is not None:
                 operation(msg)
             else:
-                self.logger("%s %s: don't know what to do with: %s" %
-                            (self.__class__.__name__, str(self.uuid())[-6:], str(msg)),
-                            log_level="DEBUG")
+                text = "{} {}: don't know what to do with: {}".format(
+                    self.__class__.__name__, str(uuid), str(msg)
+                )
+                self.logger(text, log_level="DEBUG")
 
         if some messages take precedence over others (priority messages), the
         inbox should be emptied in the beginning of the update function for
@@ -280,33 +265,47 @@ class Agent(object):
         assert isinstance(self._scheduler_api, Scheduler)
         self._scheduler_api.log(level, msg)
 
-    def set_alarm(self, alarm_time, alarm_message=None, relative=False, ignore_alarm_if_idle=True):
-        """ to set alarms
+    def set_alarm(self, alarm_time, alarm_message, relative=False, ignore_alarm_if_idle=True):
+        """ delivers alarm_message to alarm_message.receiver at alarm_time (relative or absolute)
 
-        :param alarm_time: time as timestamp() (float)
+        NB: alarm_message.receiver does not have to be self. An agent can create a message and
+        set_alarm(..., msg, ...) with a message where the receiver is another agent.
+
+        :param alarm_time: float: time as timestamp()
         :param alarm_message: AgentMessage, if None the scheduler will run "update" on the agent once.
+
         :param relative: boolean (1 second later is relative)
             True: alarm goes off at time.time() + alarm_time
             False: alarm goes off at alarm_time (must be greater than time.time() )
         :param ignore_alarm_if_idle: boolean, if True, the scheduler will ignore that an alarm was set,
         if there are no more messages being exchanged.
         """
-        assert isinstance(alarm_time, (float, int)), "expected float or int time. Use time.time() or datetime.datetime.now().timestamp()"
-        now = time.time()
-        if relative:
-            alarm_time = now + alarm_time
+        if not isinstance(alarm_time, (float, int)):
+            raise TypeError("expected float or int time. Use time.time() or datetime.datetime.now().timestamp()")
+        if not isinstance(alarm_message, AgentMessage):
+            raise TypeError("expected AgentMessage")
 
-        if alarm_time < now:
-            raise ValueError("Alarm time is in the past")
         assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
-        self._scheduler_api.set_alarm(uuid=self.uuid, alarm_time=alarm_time,
+        self._scheduler_api.set_alarm(alarm_time=alarm_time,
                                       alarm_message=alarm_message,
+                                      relative=relative,
                                       ignore_alarm_if_idle=ignore_alarm_if_idle)
 
-    def subscribe(self, topic):
+    def remove_alarm(self, alarm_message=None):
         """
+        :param alarm_message: optional, if provided, the alarm associated with the given message is removed.
+            if not provided, all previously set alarms are removed.
+        :param if specified only alarms with set topic are removed.
+            otherwise all alarms for this agent are removed.
+        """
+        self._scheduler_api.clear_alarms(uuid=self.uuid, alarm_message=alarm_message)
+
+    def subscribe(self, uuid=None, topic=None):
+        """
+        :param uuid: optional, the uuid of the agent that self wants to subscribe to.
+        :param topic: optional, the topic of the message that self want to subscribe to.
+
         A method to be used by the agent to set and subscribe to a particular topic
-        :param topic: string
 
         Examples:
         To subscribe to messages for the agent itself, use: topic=self.uuid
@@ -319,20 +318,21 @@ class Agent(object):
 
         """
         assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
-        self._scheduler_api.subscribe(uuid=self.uuid, topic=topic)
+        self._scheduler_api.subscribe(subscriber=self.uuid, target=uuid, topic=topic)
 
-    def unsubscribe(self, topic=None):
+    def unsubscribe(self, target=None, topic=None):
         """ A method to be used by the agent to unset and unsubscribe to a particular topic
+        :param target: string or None. If None, the agent unsubscribes to topic.
         :param topic: string or None. If None, the agent unsubscribes from everything.
 
         Note that all agents automatically unsubscribe at teardown.
         """
         assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
-        self._scheduler_api.unsubscribe(uuid=self.uuid, topic=topic)
+        self._scheduler_api.unsubscribe(subscriber=self.uuid, target=target, topic=topic)
 
-    def get_subscriber_list(self, topic):
+    def get_subscriber_list(self, target=None, topic=None):
         assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
-        return self._scheduler_api.get_subscriber_list(topic)
+        return self._scheduler_api.get_subscriber_list(target=target, topic=topic)
 
     def get_subscription_topics(self):
         assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
@@ -359,30 +359,93 @@ class SchedulerException(MasLiteException):
     pass
 
 
-class Alarm(object):
-    """ Data structure for the Schedulers alarm"""
-    __slots__ = ['uuid', 'alarm_time', 'alarm_message', 'ignore_alarm_if_idle']
+class Clock(object):
+    def __init__(self, scheduler_api=None):
+        if not isinstance(scheduler_api, Scheduler):
+            raise TypeError
+        self.scheduler_api = scheduler_api
+        self._time = None
+        self.alarms = []
+        self.alarm_messages = defaultdict(list)
 
-    def __init__(self, uuid, alarm_time, alarm_message, ignore_alarm_if_idle):
-        self.uuid = uuid
-        self.alarm_time = alarm_time
-        self.alarm_message = alarm_message
-        self.ignore_alarm_if_idle = ignore_alarm_if_idle
+    @property
+    def time(self):
+        return self._time
+
+    def __str__(self):
+        return f"{self.__class__.__name__}: {self.time}"
+
+    def tick(self):
+        """ progresses time by one tick."""
+        raise NotImplementedError("sub classes implement this so that _time is updated.")
+
+    def release_alarm_messages(self):
+        for timestamp in self.alarms:  # alarms are already sorted.
+            if timestamp > self._time:
+                return
+            for message_list in self.alarm_messages.pop(timestamp):
+                for message in message_list:
+                    self.scheduler_api.needs_update.add(message.receiver)
+                    agent = self.scheduler_api.agents[message.receiver]
+                    agent.inbox.append(message)
+            self.alarms.remove(timestamp)
+
+    def set_alarm(self, delay, signal):
+        wakeup_time = self.time + delay
+        insort(self.alarms, wakeup_time)  # smallest first!
+        self.alarms[wakeup_time].append(signal)
+
+    def clear_alarms(self, uuid=None, message=None):
+        """
+        :param uuid: setter of the alarm.
+        :param message: alarm message to be removed.
+        """
+        if message is not None:  # the long way.
+            for time in self.alarm_messages.copy():
+                self.alarm_messages[time] = [s for s in self.alarm_messages[time] if s != message]
+        elif uuid is not None:
+            for time in self.alarm_messages.copy():
+                self.alarm_messages[time] = [s for s in self.alarm_messages[time] if s.receiver != uuid]
+        else:
+            self.alarms.clear()
+            self.alarm_messages.clear()
+
+
+class RealTimeClock(Clock):
+    def __init__(self, scheduler_api):
+        super().__init__(scheduler_api)
+
+    def tick(self):
+        self._time = time.time()
+
+
+class SimulationClock(Clock):
+    def __init__(self, scheduler_api):
+        super().__init__(scheduler_api)
+
+    def tick(self):
+        if self.scheduler_api.needs_update:
+            pass  # don't progress time, agents are updating.
+        else:  # jump in time to the next alarm.
+            self._time = min(self.alarms)
 
 
 class Scheduler(object):
     """ The scheduler that handles updates of all agents."""
 
-    def __init__(self, logger=None):
+    def __init__(self, logger=None, real_time=True):
         """
         :param logger: optional: logging.logger
         """
+        if real_time:
+            self.clock = RealTimeClock(scheduler_api=self)
+        else:
+            self.clock = SimulationClock(scheduler_api=self)
         self.mail_queue = deque()
-        self.mailing_lists = {}
+        self.mailing_lists = defaultdict(set)
         self.agents = dict()
         self.needs_update = set()
         self.has_keep_awake = set()
-        self.alarms = []
         self._must_run_until_alarm_expires = False
 
         self._quit = False
@@ -412,8 +475,8 @@ class Scheduler(object):
             raise SchedulerException("Agent uuid already in usage.")
         self.agents[agent.uuid] = agent
         agent._scheduler_api = self
-        self.subscribe(agent.uuid, topic=agent.uuid)
-        self.subscribe(agent.uuid, topic=agent.__class__.__name__)
+        self.subscribe(subscriber=agent.uuid, target=agent.uuid)
+        self.subscribe(subscriber=agent.uuid, topic=agent.__class__.__name__)
         agent.setup()
 
         if agent.keep_awake:
@@ -438,7 +501,7 @@ class Scheduler(object):
 
         self.log(level=DEBUG, msg="DeRegistering agent {}".format(agent.uuid))
         agent.teardown()
-        self.unsubscribe(agent.uuid)
+        self.unsubscribe(subscriber=agent.uuid, target=None, topic=None)
         if agent.uuid in self.needs_update:
             self.needs_update.remove(agent.uuid)
         if agent.uuid in self.has_keep_awake:
@@ -492,7 +555,8 @@ class Scheduler(object):
             self.needs_update.clear()
 
             # check any timed alarms.
-            self.check_alarms()
+            self.clock.tick()
+            self.clock.release_alarm_messages()
 
             # distribute messages or sleep.
             no_messages = len(self.mail_queue) == 0
@@ -506,9 +570,8 @@ class Scheduler(object):
                     self._quit = True
 
             if iterations_to_halt is not None:
-                if iterations_to_halt > 0:
-                    iterations_to_halt -= 1
-                if iterations_to_halt == 0:
+                iterations_to_halt -= 1
+                if iterations_to_halt <= 0:
                     self._quit = True
 
             if no_messages:
@@ -516,9 +579,11 @@ class Scheduler(object):
                     time.sleep(1 / self._operating_frequency)
                 elif pause_if_idle:
                     self._quit = True
+                else:
+                    pass  # nothing to do.
 
         if clear_alarms_at_end:
-            self.alarms.clear()
+            self.clock.clear_alarms()
 
     def process_mail_queue(self):
         """
@@ -532,12 +597,18 @@ class Scheduler(object):
                 receiver = msg.receiver
                 recipients = set()
                 # 1. collect the list of recipients
-                if receiver in self.mailing_lists:
+
+                if (None, receiver) in self.mailing_lists:  # then it's a tracked receiver.
                     recipients.update(self.mailing_lists[receiver])
-                if topic in self.mailing_lists:  # then it's a tracked topic
-                    recipients.update((self.mailing_lists[topic]))
+
+                if (topic, None) in self.mailing_lists:  # then it's a tracked topic
+                    recipients.update(self.mailing_lists[topic])
+
+                if (topic, receiver) in self.mailing_lists:  # then it's tracked topic and receiver.
+                    recipients.update(self.mailing_lists[(topic, receiver)])
+
                 # 2. distribute the mail.
-                if len(recipients) > 0:  # receiver is not in self.mailing_lists, so s/h/it might be moving.
+                if recipients:  # receiver is not in self.mailing_lists, so s/h/it might be moving.
                     self.send_to_recipients(msg=msg, recipients=recipients)
                 else:
                     self.log(level=DEBUG, msg="{} is not registered on a mailing list.".format(receiver))
@@ -555,89 +626,90 @@ class Scheduler(object):
             if agent is None:
                 continue
             self.needs_update.add(uuid)
-            if len(recipients) == 1:
-                agent.inbox.append(msg)
+            if msg.receiver == uuid:
+                agent.inbox.append(msg)  # original message
             else:
                 try:
-                    agent.inbox.append(msg.copy())
+                    msg_copy = msg.copy()
                 except Exception as e:
                     m = """
-Message could not be copied:\n\t{}\ncausing exception:\n{}. 
-Please check that the contents in the message is decoupled from other objects.
-""".format(str(msg), str(e))
+                    Message could not be copied:\n\t{}\ncausing exception:\n{}. 
+                    Please check that the contents in the message is decoupled from other objects.
+                    """.format(str(msg), str(e))
                     raise SchedulerException(m)
+
+                agent.inbox.append(msg_copy)
 
     def pause(self):
         self._quit = True
 
-    def set_alarm(self, uuid, alarm_time, alarm_message, ignore_alarm_if_idle):
-        now = time.time()
-        assert alarm_time > now, "Alarm time is in the past"
-        self.alarms.append(Alarm(uuid, alarm_time, alarm_message, ignore_alarm_if_idle))
-        self.alarms.sort(key=lambda x: x.alarm_time)
+    def set_alarm(self, alarm_time, alarm_message, relative, ignore_alarm_if_idle):
+        """
+        :param alarm_time: time for the alarm (relative or absolute)
+        :param alarm_message: AgentMessage.
+        :param relative: bool: if true, alarm_time = clock.time + alarm_time
+                                else, alarm_time is taken as an absolute value
+        :param ignore_alarm_if_idle: Allows the scheduler to stop if no other messages are exchanged.
+        """
+        if relative:
+            delay = alarm_time
+        else:
+            delay = alarm_time - self.clock.time
+
+        if delay < 0:
+            raise ValueError("Alarm time is in the past")
+
+        self.clock.set_alarm(delay=alarm_time, signal=alarm_message)
         if ignore_alarm_if_idle is False:
             self._must_run_until_alarm_expires = True
 
-    def check_alarms(self):
-        now = time.time()
-        expired_alarms = [a for a in self.alarms if now >= a.alarm_time]
-        if not expired_alarms:
-            return
-        self.alarms = [a for a in self.alarms if now < a.alarm_time]
-        self._must_run_until_alarm_expires = any((a for a in self.alarms if a.ignore_alarm_if_idle is False))
-        for alarm in expired_alarms:
-            assert isinstance(alarm, Alarm)
-            agent = self.agents.get(alarm.uuid, None)
-            if agent is None:  # agent could have been removed.
-                continue
-            self.needs_update.add(alarm.uuid)
-            if alarm.alarm_message is not None:
-                agent.inbox.append(alarm.alarm_message)
-
-    def subscribe(self, uuid, topic):
+    def subscribe(self, subscriber, target=None, topic=None):
         """ subscribe lets the Agent react to SubscribeMessage and adds the subscriber.
         to registered subscribers. Used by default during `_setup` by all agents.
-        :param uuid:
-        :param topic:
-        :return:
+        :param subscriber: the agent uuid listening to messages
+        :param target: the agent receiving messages
+        :param topic: the topic received by the target
 
         Notes: The method adds agent to subscriber list.
         Any agent may subscribe for the same topic many times (this is managed)
         """
-        assert uuid in self.agents, "uuid not in scheduler."
-        if topic not in self.mailing_lists:
-            self.mailing_lists[topic] = set()
-            self.log(level=DEBUG, msg="%s requesting topics added: %s" % (uuid, topic))
-        if uuid not in self.mailing_lists[topic]:
-            self.mailing_lists[topic].add(uuid)
-            if topic == uuid:
-                self.log(level=DEBUG, msg="%s subscribing to messages for itself." % (uuid))
-            else:
-                self.log(level=DEBUG, msg="%s subscribing to topic: %s" % (uuid, topic))
+        if subscriber not in self.agents:
+            raise ValueError(f"subscriber {subscriber} unknown")
+
+        key = (topic, target)
+        if key not in self.mailing_lists:
+            self.log(level=DEBUG, msg=f"topic added: {topic})
+
+        if subscriber not in self.mailing_lists[key]:
+            self.mailing_lists[key].add(subscriber)
+            self.log(level=DEBUG, msg=f"{subscriber} subscribing to topic: {key}")
         else:
-            self.log(level=DEBUG, msg="%s already subscribing to topic: %s" % (uuid, topic))
+            self.log(level=DEBUG, msg=f"{subscriber} already subscribing to topic: {key}")
 
-    def unsubscribe(self, uuid, topic=None):
+    def unsubscribe(self, subscriber, target=None, topic=None):
         """ unsubscribes a subscriber from messages.
-        :param uuid: agent uuid
-        :param topic: str, if None, all topics are unsubscribed from.
+        :param subscriber: the agent uuid listening to messages
+        :param target: the agent receiving messages
+        :param topic: the topic received by the target
         """
-        if topic is not None:
-            self.mailing_lists[topic].remove(uuid)
-            if len(self.mailing_lists[topic]) == 0:
-                del self.mailing_lists[topic]
-            return
+        if any((target, topic)):
+            key = (topic, target)
+            self.mailing_lists[key].discard(subscriber)
+            if len(self.mailing_lists[key]) == 0:
+                del self.mailing_lists[key]
+        else:  # the long way
+            keys = [key for key, subscribers in self.mailing_lists.items() if subscriber in subscribers]
+            for key in keys:
+                self.mailing_lists[key].discard(subscriber)
 
-        for topic in [t for t in self.mailing_lists.keys()]:
-            self.mailing_lists[topic].discard(uuid)
-            if len(self.mailing_lists[topic]) == 0:
-                del self.mailing_lists[topic]
-
-    def get_subscriber_list(self, topic):
-        """ Returns the list of subscribers of a particular topic."""
-        if topic in self.mailing_lists:
-            return self.mailing_lists.get(topic).copy()
-        return []
+    def get_subscriber_list(self, target=None, topic=None):
+        """ Returns the list of subscribers of a particular topic for particular topics.
+        :param target: the agent receiving messages
+        :param topic: the topic received by the target
+        :return list of subscribers
+        """
+        key = (topic, target)
+        return [i for i in self.mailing_lists.get(key)]
 
     def get_subscription_topics(self):
         """ Returns the list of subscription topics"""
