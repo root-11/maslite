@@ -678,7 +678,7 @@ class Scheduler(object):
 
         key = (topic, target)
         if key not in self.mailing_lists:
-            self.log(level=DEBUG, msg=f"topic added: {topic})
+            self.log(level=DEBUG, msg=f"topic added: {topic}")
 
         if subscriber not in self.mailing_lists[key]:
             self.mailing_lists[key].add(subscriber)
