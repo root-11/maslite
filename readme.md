@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/root-11/maslite.svg?branch=master)](https://travis-ci.org/root-11/maslite)
+[![Build Status](https://travis-ci.com/root-11/maslite.svg?branch=master)](https://travis-ci.com/root-11/maslite)
 [![Code coverage](https://codecov.io/gh/root-11/maslite/branch/master/graph/badge.svg)](https://codecov.io/gh/root-11/maslite)
 [![Downloads](https://pepy.tech/badge/maslite)](https://pepy.tech/project/maslite)
 [![Downloads](https://pepy.tech/badge/maslite/month)](https://pepy.tech/project/maslite/month)
@@ -13,7 +13,9 @@ isolation and any similarity to other systems is purely coincidental.
 --------------
 
 **New in version 2021.2.2**
- 
+
+- dropping support for python 3.5. 
+
 - subscribe now permits topic and agent id.
 
 - copy does no longer use deepcopy and will raise if you don't have a copy method!  
