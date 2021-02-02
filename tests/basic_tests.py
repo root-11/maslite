@@ -294,7 +294,6 @@ def test_ping_pong_tests():
     assert player_a.outcome == "won!"
     assert player_b.update_count == limit
     assert player_b.outcome != "won!"
-    assert mps > 160_000, mps
-    print(mps)
+    print(mps, "messages per second")
 
 
