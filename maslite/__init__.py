@@ -165,7 +165,7 @@ class Agent(object):
         """
         :return: Boolean: True if there are messages.
         """
-        if len(self.inbox) > 0:
+        if self.inbox:
             return True
         else:
             return False
@@ -265,7 +265,7 @@ class Agent(object):
         assert isinstance(self._scheduler_api, Scheduler)
         self._scheduler_api.log(level, msg)
 
-    def set_alarm(self, alarm_time, alarm_message, relative=False, ignore_alarm_if_idle=True):
+    def set_alarm(self, alarm_time, alarm_message, relative=True, ignore_alarm_if_idle=True):
         """ delivers alarm_message to alarm_message.receiver at alarm_time (relative or absolute)
 
         NB: alarm_message.receiver does not have to be self. An agent can create a message and
@@ -360,20 +360,21 @@ class SchedulerException(MasLiteException):
 
 
 class Clock(object):
-    def __init__(self, scheduler_api=None):
+    def __init__(self, scheduler_api):
         if not isinstance(scheduler_api, Scheduler):
             raise TypeError
         self.scheduler_api = scheduler_api
         self._time = None
         self.alarms = []
         self.alarm_messages = defaultdict(list)
+        self.last_required_alarm = -1
 
     @property
     def time(self):
         return self._time
 
     def __str__(self):
-        return f"{self.__class__.__name__}: {self.time}"
+        return f"{self.__class__.__name__}: {self.time} {len(self.alarms)} alarms pending"
 
     def tick(self):
         """ progresses time by one tick."""
@@ -383,17 +384,20 @@ class Clock(object):
         for timestamp in self.alarms:  # alarms are already sorted.
             if timestamp > self._time:
                 return
-            for message_list in self.alarm_messages.pop(timestamp):
-                for message in message_list:
-                    self.scheduler_api.needs_update.add(message.receiver)
-                    agent = self.scheduler_api.agents[message.receiver]
-                    agent.inbox.append(message)
+            for message in self.alarm_messages[timestamp]:
+                self.scheduler_api.mail_queue.append(message)
+            del self.alarm_messages[timestamp]
             self.alarms.remove(timestamp)
 
-    def set_alarm(self, delay, signal):
+    def set_alarm(self, delay, signal, ignore_alarm_if_idle):
+        assert isinstance(delay, (int,float))
+        assert isinstance(signal, AgentMessage)
+        assert isinstance(ignore_alarm_if_idle, bool)
         wakeup_time = self.time + delay
+        if ignore_alarm_if_idle is False:
+            self.last_required_alarm = max(self.last_required_alarm, wakeup_time)
         insort(self.alarms, wakeup_time)  # smallest first!
-        self.alarms[wakeup_time].append(signal)
+        self.alarm_messages[wakeup_time].append(signal)
 
     def clear_alarms(self, uuid=None, message=None):
         """
@@ -414,6 +418,7 @@ class Clock(object):
 class RealTimeClock(Clock):
     def __init__(self, scheduler_api):
         super().__init__(scheduler_api)
+        self._time = time.time()
 
     def tick(self):
         self._time = time.time()
@@ -422,12 +427,15 @@ class RealTimeClock(Clock):
 class SimulationClock(Clock):
     def __init__(self, scheduler_api):
         super().__init__(scheduler_api)
+        self._time = 0
 
     def tick(self):
         if self.scheduler_api.needs_update:
             pass  # don't progress time, agents are updating.
-        else:  # jump in time to the next alarm.
+        elif self.alarms:  # jump in time to the next alarm.
             self._time = min(self.alarms)
+        else:
+            pass
 
 
 class Scheduler(object):
@@ -461,6 +469,9 @@ class Scheduler(object):
                 self._logger.addHandler(handler)
         else:
             self._logger = logger
+
+    def __str__(self):
+        return f"{self.__class__.__name__} ({len(self.needs_update)}/{len(self.agents)} agents active)"
 
     def log(self, level, msg):
         self._logger.log(level, msg)
@@ -565,8 +576,7 @@ class Scheduler(object):
 
             # determine whether to stop:
             if start_time is not None:
-                now = time.time()
-                if now >= (start_time + seconds):
+                if time.time() >= (start_time + seconds):
                     self._quit = True
 
             if iterations_to_halt is not None:
@@ -575,7 +585,7 @@ class Scheduler(object):
                     self._quit = True
 
             if no_messages:
-                if self._must_run_until_alarm_expires is True:
+                if self.clock.time < self.clock.last_required_alarm:
                     time.sleep(1 / self._operating_frequency)
                 elif pause_if_idle:
                     self._quit = True
@@ -599,10 +609,10 @@ class Scheduler(object):
                 # 1. collect the list of recipients
 
                 if (None, receiver) in self.mailing_lists:  # then it's a tracked receiver.
-                    recipients.update(self.mailing_lists[receiver])
+                    recipients.update(self.mailing_lists[(None, receiver)])
 
                 if (topic, None) in self.mailing_lists:  # then it's a tracked topic
-                    recipients.update(self.mailing_lists[topic])
+                    recipients.update(self.mailing_lists[(topic, None)])
 
                 if (topic, receiver) in self.mailing_lists:  # then it's tracked topic and receiver.
                     recipients.update(self.mailing_lists[(topic, receiver)])
@@ -659,9 +669,9 @@ class Scheduler(object):
         if delay < 0:
             raise ValueError("Alarm time is in the past")
 
-        self.clock.set_alarm(delay=alarm_time, signal=alarm_message)
-        if ignore_alarm_if_idle is False:
-            self._must_run_until_alarm_expires = True
+        self.clock.set_alarm(delay=delay, signal=alarm_message, ignore_alarm_if_idle=ignore_alarm_if_idle)
+        # if ignore_alarm_if_idle is False:
+        #     self._must_run_until_alarm_expires = True
 
     def subscribe(self, subscriber, target=None, topic=None):
         """ subscribe lets the Agent react to SubscribeMessage and adds the subscriber.
@@ -692,7 +702,7 @@ class Scheduler(object):
         :param target: the agent receiving messages
         :param topic: the topic received by the target
         """
-        if any((target, topic)):
+        if any((topic, target)):
             key = (topic, target)
             self.mailing_lists[key].discard(subscriber)
             if len(self.mailing_lists[key]) == 0:
@@ -701,6 +711,8 @@ class Scheduler(object):
             keys = [key for key, subscribers in self.mailing_lists.items() if subscriber in subscribers]
             for key in keys:
                 self.mailing_lists[key].discard(subscriber)
+                if not self.mailing_lists[key]:
+                    del self.mailing_lists[key]
 
     def get_subscriber_list(self, target=None, topic=None):
         """ Returns the list of subscribers of a particular topic for particular topics.

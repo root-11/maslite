@@ -28,24 +28,25 @@ class TestAgent(Agent):
         self.count_teardowns += 1
 
 
+class TestMessage(AgentMessage):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def copy(self):
+        return TestMessage(self.sender, self.receiver)
+
+
 def test_message():
-    msg = AgentMessage(1)
+    msg = TestMessage(1)
     assert msg.sender == 1
     assert msg.receiver is None
-    assert msg.topic is AgentMessage.__name__
-    assert isinstance(msg.uuid, int)
+    assert msg.topic is TestMessage.__name__
 
     msg.sender = 1  # test setattr
     msg.receiver = 2  # test setattr
     msg_cp = msg.copy()
     assert id(msg) != id(msg_cp)
     msg.topic = 3
-
-    try:
-        msg.uuid = 123
-        assert False, "setting uuid after initiation is not permitted."
-    except ValueError:
-        assert True
 
 
 def tests_message_exchange():
@@ -97,7 +98,7 @@ def tests_message_exchange():
     try:
         a.set_alarm(1, None, True, True)
         raise Exception("!")
-    except AssertionError:
+    except TypeError:
         assert True
 
     try:
@@ -120,17 +121,17 @@ def tests_add_to_scheduler():
     assert a.count_setups == 1
     assert a.get_subscription_topics() == s.get_subscription_topics(), "these should be the same"
 
-    assert a.uuid in a.get_subscription_topics()
-    assert a.__class__.__name__ in a.get_subscription_topics()
-    a.unsubscribe(a.__class__.__name__)
-    assert a.uuid in a.get_subscription_topics()
-    assert a.__class__.__name__ not in a.get_subscription_topics()
+    assert a.uuid in {uid for topic, uid in a.get_subscription_topics()}
+    assert a.__class__.__name__ in {topic for topic, uid in a.get_subscription_topics()}
+    a.unsubscribe(topic=a.__class__.__name__)
+    assert a.uuid in {uid for topic, uid in a.get_subscription_topics()}
+    assert a.__class__.__name__ not in {topic for topic, uid in a.get_subscription_topics()}
     assert a.uuid in a.get_subscriber_list(a.uuid)
-    a.subscribe(a.__class__.__name__)
-    assert a.__class__.__name__ in a.get_subscription_topics()
+    a.subscribe(topic=a.__class__.__name__)
+    assert a.__class__.__name__ in {topic for topic, uid in a.get_subscription_topics()}
 
     assert a.messages is False
-    m = AgentMessage(sender=a, receiver=a)
+    m = TestMessage(sender=a, receiver=a)
     assert m.sender == a.uuid
     assert m.receiver == a.uuid
     a.send(m)
@@ -140,17 +141,16 @@ def tests_add_to_scheduler():
     assert a.messages is True
     m2 = a.receive()
     assert m is m2
-    assert m.uuid == m2.uuid
-    # note for above: When the message is "sent" the uuid should not change.
-    # however when the message is broadcast the uuid CAN change as new messages are made from the original.
     m3 = a.receive()
     assert m3 is None
     assert a.messages is False
+    s.run()
     start = time.time()
-    a.set_alarm(alarm_time=1, alarm_message=None, relative=True)
+    alarm_mesage = TestMessage(a, a)
+    a.set_alarm(alarm_time=1000000000, alarm_message=alarm_mesage)
     s.run()
     end = time.time()
-    assert end-start < 1, "scheduler didn't ignore the setting drop alarm if idle."
+    assert end - start < 1, "scheduler didn't ignore the setting drop alarm if idle."
     assert a.count_updates == 1, a.count_updates
     assert a.count_setups == 1
     assert a.count_teardowns == 0
@@ -173,7 +173,7 @@ def tests_add_to_scheduler():
     b = TestAgent()
     a.add(b)
     assert b.uuid in s.agents
-    assert b.uuid in a.get_subscription_topics()
+    assert b.uuid in {uid for topic, uid in a.get_subscription_topics()}
 
     try:
         a.add(b)
@@ -183,13 +183,13 @@ def tests_add_to_scheduler():
 
     a.remove(b.uuid)
     assert b.uuid not in s.agents
-    assert b.uuid not in a.get_subscription_topics()
+    assert b.uuid not in {uid for topic, uid in a.get_subscription_topics()}
     a.add(b)
 
     s.run()
     assert len(s.needs_update) == 0
 
-    m4 = AgentMessage(sender=a, receiver=b)
+    m4 = TestMessage(sender=a, receiver=b)
     a.send(m4)
     s.run(iterations=1)
     assert m4 in b.inbox
@@ -197,44 +197,24 @@ def tests_add_to_scheduler():
     start = time.time()
     s.run(seconds=0.30, pause_if_idle=False)
     end = time.time()
-    assert 0.295 < end - start < 0.315, end-start
+    assert 0.295 < end - start < 0.315, end - start
 
-    b.subscribe(topic="magic")
-    m5 = AgentMessage(sender=a, topic="magic")
-    m5.payload = "the secret sauce"
-    a.send(m5)
-    s.run()
-    assert b.messages is True
-    m5_cp = b.receive()
-    assert m5_cp.sender == a.uuid
-    assert hasattr(m5_cp, "payload"), "deepcopy should have added this!"
-    assert m5_cp.payload == m5.payload
-
-    alarm_msg = AgentMessage(sender=a, receiver=a, topic="Alarm!!!")
+    alarm_msg = TestMessage(sender=a, receiver=a, topic="Alarm!!!")
 
     a.set_alarm(alarm_time=1, alarm_message=alarm_msg, relative=True, ignore_alarm_if_idle=False)
-    assert len(s.alarms) == 1
+    assert len(s.clock.alarms) == 1
     start = time.time()
-    s.run(clear_alarms_at_end=True)
+    s.run(clear_alarms_at_end=True, pause_if_idle=True)
     end = time.time()
-    assert 0.95 < end-start < 1.05
-    assert len(s.alarms) == 0
+    assert 0.95 < end - start < 1.05
+    assert len(s.clock.alarms) == 0
     alarm = a.receive()
     assert alarm_msg.topic == alarm.topic
 
     random_id = 2134565432
-    m6 = AgentMessage(sender=a, receiver=random_id)
+    m6 = TestMessage(sender=a, receiver=random_id)
     a.send(m6)
     assert random_id not in s.agents
-
-    m7 = AgentMessage(sender=a, topic=a.__class__.__name__)
-    m7.payload = "copy test"
-    a.send(m7)
-    s.run()
-    m7_cp = a.receive()
-    assert m7_cp.payload == m7.payload
-    m7_cp = b.receive()
-    assert m7_cp.payload == m7.payload
 
     a.log(msg="test done")
 
@@ -248,16 +228,6 @@ def test_basic_message_abuse():
         s.add(i)
         i.subscribe('test')
 
-    with open(__file__, 'r') as fo:
-        msg = AgentMessage(a, None, topic='test')
-        msg.content = fo
-        a.send(msg)
-        try:
-            s.process_mail_queue()
-            assert False, "sending an open file handle is not permitted."
-        except SchedulerException:
-            assert True
-
 
 class PingPongBall(AgentMessage):
     def __init__(self, sender, receiver, topic='ping'):
@@ -265,13 +235,14 @@ class PingPongBall(AgentMessage):
 
 
 class PingPongPlayer(Agent):
-    def __init__(self):
+    def __init__(self, limit=500):
         super().__init__()
         self.operations['ping'] = self.hit
         self.operations['pong'] = self.hit
         self.operations['smash'] = self.loose
         self.outcome = None
         self.update_count = 0
+        self.limit = limit
 
     def setup(self):
         pass
@@ -289,7 +260,7 @@ class PingPongPlayer(Agent):
     def hit(self, msg):
         assert isinstance(msg, PingPongBall)
         msg.sender, msg.receiver = msg.receiver, msg.sender
-        if self.update_count < 5:
+        if self.update_count < self.limit:
             if msg.topic == 'ping':
                 msg.topic = 'pong'
             else:
@@ -309,16 +280,22 @@ class PingPongPlayer(Agent):
 
 def test_ping_pong_tests():
     s = Scheduler()
-    player_a = PingPongPlayer()
-    player_b = PingPongPlayer()
+    limit = 5000
+    player_a = PingPongPlayer(limit)
+    player_b = PingPongPlayer(limit)
     s.add(player_a)
     s.add(player_b)
     player_a.serve(opponent=player_b)
+    start = time.process_time()
     s.run()
-    assert player_a.update_count == 5
+    end = time.process_time()
+    mps = (player_a.update_count + player_b.update_count) / (end-start)
+    assert player_a.update_count == limit
     assert player_a.outcome == "won!"
-    assert player_b.update_count == 5
+    assert player_b.update_count == limit
     assert player_b.outcome != "won!"
+    assert mps > 160_000, mps
+    print(mps)
 
 
 def test_scheduling_demo():
@@ -326,8 +303,29 @@ def test_scheduling_demo():
     test01()
 
 
-def test_auction_demo():
+def test_auction_demo2():
+    from demos.auction_model import test02
+    test02(),
+
+
+def test_auction_demo3():
+    from demos.auction_model import test03
+    test03()
+
+
+def test_auction_demo4():
+    from demos.auction_model import test04
+
+    test04()
+
+
+def test_auction_demo5():
+    from demos.auction_model import test05
+
+    test05()
+
+
+def test_auction_demo6():
     from demos.auction_model import test06
+
     test06()
-
-

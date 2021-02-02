@@ -1,5 +1,6 @@
 from itertools import product
 from maslite import Agent, AgentMessage, Scheduler
+from collections import defaultdict
 
 __author__ = ["bjorn.madsen@operationsresearchgroup.com"]
 
@@ -96,20 +97,20 @@ assert set(seller_data.keys()).isdisjoint(set(buyer_data.keys())), "there's an o
 
 class RFQ(AgentMessage):
     def __init__(self, sender, max_price, receiver=None):
-        assert isinstance(sender, Buyer)
-        if receiver is None:
-            receiver = Seller.__name__
         super().__init__(sender=sender, receiver=receiver)
         self.max_price = max_price
+
+    def copy(self):
+        return RFQ(sender=self.sender, max_price=self.max_price, receiver=self.receiver)
 
 
 class Advert(AgentMessage):
     def __init__(self, sender, receiver=None, price=None):
-        assert isinstance(sender, Seller)
-        if receiver is None:
-            receiver = Buyer.__name__
         super().__init__(sender=sender, receiver=receiver)
         self.price = price
+
+    def copy(self):
+        return Advert(sender=self.sender, receiver=self.receiver, price=self.price)
 
 
 class Accept(AgentMessage):  # bid acceptance
@@ -128,23 +129,28 @@ class Seller(Agent):
         self.operations[RFQ.__name__] = self.rfq
         self.operations[Accept.__name__] = self.acc
         self.operations[Withdraw.__name__] = self.withdraw
-        self.buyers = {}
+        self.buyers = defaultdict(dict)
         self.prices = prices
         self.send_advert_at_setup = send_advert_at_setup
 
     def setup(self):
+        self.subscribe(topic=RFQ.__name__)
         if self.send_advert_at_setup:
             self.send(Advert(sender=self))
 
     def update(self):
         while self.messages:
             msg = self.receive()
+            if msg.receiver not in {self.uuid, None}:
+                continue
             ops = self.operations.get(msg.topic)
             ops(msg)
 
         # make up my mind.
         offers = []
         for buyer in self.buyers:
+            if 'price' not in self.buyers[buyer]:
+                print("!")
             price = self.buyers[buyer]['price']
             offers.append([price, buyer])
         offers.sort(reverse=True)  # biggest first.
@@ -189,6 +195,7 @@ class Seller(Agent):
 
     def withdraw(self, msg):
         assert isinstance(msg, Withdraw)
+        self.buyers[msg.sender]['price'] = 0
         self.buyers[msg.sender]['accepted'] = False
         self.buyers[msg.sender]['selected'] = False
         self.buyers[msg.sender]['withdrawn'] = True
@@ -206,17 +213,21 @@ class Buyer(Agent):
         self.operations[Advert.__name__] = self.adv
         self.operations[Accept.__name__] = self.acc
         self.operations[Withdraw.__name__] = self.withdraw
-        self.sellers = {}
+        self.sellers = defaultdict(dict)
         self.send_rfq_at_setup = send_rfq_at_setup
 
     def setup(self):
+        self.subscribe(topic=Advert.__name__)
         if self.send_rfq_at_setup:
             self.send(RFQ(sender=self, max_price=self.max_price))
 
     def update(self):
-
         while self.messages:
             msg = self.receive()
+
+            if msg.receiver not in {self.uuid, None}:
+                continue
+
             ops = self.operations.get(msg.topic)
             ops(msg)
 
@@ -367,30 +378,7 @@ def test05():
 
 
 def test06():
-    expected_results = {0: 108,
-                        1: 107,
-                        2: 105,
-                        3: None,
-                        4: 100,
-                        5: 106,
-                        6: 109,
-                        7: 102,
-                        8: 103,
-                        9: 101,
-                        10: 104,
-                        100: 4,
-                        101: 9,
-                        102: 7,
-                        103: 8,
-                        104: 10,
-                        105: 2,
-                        106: 5,
-                        107: 1,
-                        108: 0,
-                        109: 6,
-                        110: None,
-                        111: None,
-                        112: None}
+    expected_results = {0: 102, 1: 108, 2: 105, 3: 107, 4: 100, 5: 106, 6: 112, 7: 111, 8: 103, 9: 109, 10: 104, 100: 4, 101: None, 102: 0, 103: 8, 104: 10, 105: 2, 106: 5, 107: 3, 108: 1, 109: 9, 110: None, 111: 7, 112: 6}
     sellers = [k for k in expected_results if k < 100]
     buyers = [k for k in expected_results if k >= 100]
     error_sets = []
