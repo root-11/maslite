@@ -298,34 +298,3 @@ def test_ping_pong_tests():
     print(mps)
 
 
-def test_scheduling_demo():
-    from demos.scheduling import test01
-    test01()
-
-
-def test_auction_demo2():
-    from demos.auction_model import test02
-    test02(),
-
-
-def test_auction_demo3():
-    from demos.auction_model import test03
-    test03()
-
-
-def test_auction_demo4():
-    from demos.auction_model import test04
-
-    test04()
-
-
-def test_auction_demo5():
-    from demos.auction_model import test05
-
-    test05()
-
-
-def test_auction_demo6():
-    from demos.auction_model import test06
-
-    test06()
