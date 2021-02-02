@@ -384,13 +384,12 @@ class Clock(object):
         for timestamp in self.alarms:  # alarms are already sorted.
             if timestamp > self._time:
                 return
-            for message in self.alarm_messages[timestamp]:
-                self.scheduler_api.mail_queue.append(message)
+            self.scheduler_api.mail_queue.extend(self.alarm_messages[timestamp][:])
             del self.alarm_messages[timestamp]
             self.alarms.remove(timestamp)
 
     def set_alarm(self, delay, signal, ignore_alarm_if_idle):
-        assert isinstance(delay, (int,float))
+        assert isinstance(delay, (int, float))
         assert isinstance(signal, AgentMessage)
         assert isinstance(ignore_alarm_if_idle, bool)
         wakeup_time = self.time + delay
@@ -405,11 +404,11 @@ class Clock(object):
         :param message: alarm message to be removed.
         """
         if message is not None:  # the long way.
-            for time in self.alarm_messages.copy():
-                self.alarm_messages[time] = [s for s in self.alarm_messages[time] if s != message]
+            for timestamp in self.alarm_messages.copy():
+                self.alarm_messages[timestamp] = [s for s in self.alarm_messages[timestamp] if s != message]
         elif uuid is not None:
-            for time in self.alarm_messages.copy():
-                self.alarm_messages[time] = [s for s in self.alarm_messages[time] if s.receiver != uuid]
+            for timestamp in self.alarm_messages.copy():
+                self.alarm_messages[timestamp] = [s for s in self.alarm_messages[timestamp] if s.receiver != uuid]
         else:
             self.alarms.clear()
             self.alarm_messages.clear()
@@ -600,38 +599,35 @@ class Scheduler(object):
         distributes the mail, so that when the scheduler pauses, new users
         can debug the agents starting with their fresh state with new messages.
         """
-        while self.mail_queue:
-            msg = self.mail_queue.popleft()
-            if isinstance(msg, AgentMessage):
-                topic = msg.topic
-                receiver = msg.receiver
-                recipients = set()
-                # 1. collect the list of recipients
+        for msg in self.mail_queue:
+            assert isinstance(msg, AgentMessage)
+            topic = msg.topic
+            receiver = msg.receiver
+            recipients = set()
+            # 1. collect the list of recipients
 
-                if (None, receiver) in self.mailing_lists:  # then it's a tracked receiver.
-                    recipients.update(self.mailing_lists[(None, receiver)])
+            if (None, receiver) in self.mailing_lists:  # then it's a tracked receiver.
+                recipients.update(self.mailing_lists[(None, receiver)])
 
-                if (topic, None) in self.mailing_lists:  # then it's a tracked topic
-                    recipients.update(self.mailing_lists[(topic, None)])
+            if (topic, None) in self.mailing_lists:  # then it's a tracked topic
+                recipients.update(self.mailing_lists[(topic, None)])
 
-                if (topic, receiver) in self.mailing_lists:  # then it's tracked topic and receiver.
-                    recipients.update(self.mailing_lists[(topic, receiver)])
+            if (topic, receiver) in self.mailing_lists:  # then it's tracked topic and receiver.
+                recipients.update(self.mailing_lists[(topic, receiver)])
 
-                # 2. distribute the mail.
-                if recipients:  # receiver is not in self.mailing_lists, so s/h/it might be moving.
-                    self.send_to_recipients(msg=msg, recipients=recipients)
-                else:
-                    self.log(level=DEBUG, msg="{} is not registered on a mailing list.".format(receiver))
+            # 2. distribute the mail.
+            if recipients:  # receiver is not in self.mailing_lists, so s/h/it might be moving.
+                self.send_to_recipients(msg=msg, recipients=recipients)
             else:
-                self.log(level=WARNING,
-                         msg="Discovered a non-AgentMessage in the inbox. The message is dumped.")
+                self.log(level=DEBUG, msg="{} is not registered on a mailing list.".format(receiver))
+        self.mail_queue.clear()
 
     def send_to_recipients(self, msg, recipients):
         """ Distributes AgentMessages to all registered recipients.
         :param msg: an instance of AgentMessage
         :param recipients: The registered recipients
         """
-        for uuid in recipients:  # this loop is necessary as a tracker may be on the reciever.
+        for uuid in recipients:  # this loop is necessary as a tracker may be on the receiver.
             agent = self.agents.get(uuid, None)
             if agent is None:
                 continue
@@ -639,15 +635,7 @@ class Scheduler(object):
             if msg.receiver == uuid:
                 agent.inbox.append(msg)  # original message
             else:
-                try:
-                    msg_copy = msg.copy()
-                except Exception as e:
-                    m = """
-                    Message could not be copied:\n\t{}\ncausing exception:\n{}. 
-                    Please check that the contents in the message is decoupled from other objects.
-                    """.format(str(msg), str(e))
-                    raise SchedulerException(m)
-
+                msg_copy = msg.copy()
                 agent.inbox.append(msg_copy)
 
     def pause(self):
@@ -670,8 +658,6 @@ class Scheduler(object):
             raise ValueError("Alarm time is in the past")
 
         self.clock.set_alarm(delay=delay, signal=alarm_message, ignore_alarm_if_idle=ignore_alarm_if_idle)
-        # if ignore_alarm_if_idle is False:
-        #     self._must_run_until_alarm_expires = True
 
     def subscribe(self, subscriber, target=None, topic=None):
         """ subscribe lets the Agent react to SubscribeMessage and adds the subscriber.
