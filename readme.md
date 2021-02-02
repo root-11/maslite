@@ -12,6 +12,31 @@ isolation and any similarity to other systems is purely coincidental.
 
 --------------
 
+**New in version 2021.2.2**
+ 
+- subscribe now permits topic and agent id.
+
+- copy does no longer use deepcopy and will raise if you don't have a copy method!  
+  Let me emphasise: All messages must have a `copy()` method.
+
+- The `Scheduler` class must be initiated with one of two modes: real-time and simulated time.
+  - real-time uses the clock / time.time()
+  - simulated time uses a jumping clock.
+
+- `Agent.set_alarm(..., relative=True, ....)`   
+  defaults to True as most use cases use the alarm as "check again in x seconds"
+
+- broadcasts are disabled. To have broadcast-like methods, each agent must subscribe first.
+  
+  > Some users have been surprised that the broadcasting method could overflow their memory usage, so this is a safeguard. 
+  In the auction demo, 1000 sellers sending 1 offer to each of 1000 buyers which generates 1,000,000 messages. 
+  Instead of keeping a pool of 1,000,000 messages, where most are irrelevant, the new subscribe system, encourages 
+  that the developer actively add and remove subscriptions, for example by subscribing to NewSeller announcements, 
+  and afterwards only subscribe to specific agents that have offered prices within budget (or some other criteria).
+
+
+--------------
+
 #### MASlite explained in 60 seconds:
 
 MASlite is a simle python module for creating multi-agent simulations.
