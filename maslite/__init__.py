@@ -128,6 +128,18 @@ class Agent(object):
         self.keep_awake = False  # this prevents the agent from entering sleep mode when there
         # are no new messages.
 
+    def __str__(self):
+        return f"{self.__class__.__name__}({self.uuid})"
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.uuid})"
+
+    @property
+    def time(self):
+        """ returns time as float"""
+        assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
+        return self._scheduler_api.clock.time
+
     @property
     def uuid(self):
         """
@@ -143,11 +155,15 @@ class Agent(object):
     def uuid(self, value):
         raise ValueError("UUID cannot be set once the object has been instantiated")
 
-    def __str__(self):
-        return f"{self.__class__.__name__}({self.uuid})"
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}({self.uuid})"
+    @property
+    def messages(self):
+        """
+        :return: Boolean: True if there are messages.
+        """
+        if self.inbox:
+            return True
+        else:
+            return False
 
     def send(self, msg):
         """ The only method for sending messages in the system.
@@ -159,16 +175,6 @@ class Agent(object):
         assert isinstance(msg, AgentMessage), "sending messages that aren't based on AgentMessage's wont work"
         assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
         self._scheduler_api.mail_queue.append(msg)
-
-    @property
-    def messages(self):
-        """
-        :return: Boolean: True if there are messages.
-        """
-        if self.inbox:
-            return True
-        else:
-            return False
 
     def receive(self):
         """
@@ -291,6 +297,16 @@ class Agent(object):
                                       relative=relative,
                                       ignore_alarm_if_idle=ignore_alarm_if_idle)
 
+    def list_alarms(self, receiver=None):
+        """ returns list of alarms set by agent.
+        :param: receiver - optional if None receiver is self.uuid
+        :return: tuple (clock time, alarm message)
+        """
+        if receiver is None:
+            receiver = self.uuid
+        assert isinstance(self._scheduler_api, Scheduler)
+        return self._scheduler_api.list_alarms(receiver)
+
     def remove_alarm(self, alarm_message=None):
         """
         :param alarm_message: optional, if provided, the alarm associated with the given message is removed.
@@ -300,9 +316,9 @@ class Agent(object):
         """
         self._scheduler_api.clear_alarms(uuid=self.uuid, alarm_message=alarm_message)
 
-    def subscribe(self, uuid=None, topic=None):
+    def subscribe(self, target=None, topic=None):
         """
-        :param uuid: optional, the uuid of the agent that self wants to subscribe to.
+        :param target: optional, the uuid of the agent that self wants to subscribe to.
         :param topic: optional, the topic of the message that self want to subscribe to.
 
         A method to be used by the agent to set and subscribe to a particular topic
@@ -318,7 +334,7 @@ class Agent(object):
 
         """
         assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
-        self._scheduler_api.subscribe(subscriber=self.uuid, target=uuid, topic=topic)
+        self._scheduler_api.subscribe(subscriber=self.uuid, target=target, topic=topic)
 
     def unsubscribe(self, target=None, topic=None):
         """ A method to be used by the agent to unset and unsubscribe to a particular topic
@@ -349,10 +365,10 @@ class Agent(object):
         assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
         self._scheduler_api.add(agent)
 
-    def remove(self, uuid):
+    def remove(self, agent):
         """ Removes the agent from the scheduler. """
         assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
-        self._scheduler_api.remove(uuid)
+        self._scheduler_api.remove(agent)
 
 
 class SchedulerException(MasLiteException):
@@ -397,6 +413,18 @@ class Clock(object):
             self.last_required_alarm = max(self.last_required_alarm, wakeup_time)
         insort(self.alarms, wakeup_time)  # smallest first!
         self.alarm_messages[wakeup_time].append(signal)
+
+    def list_alarms(self, receiver=None):
+        """ returns alarms set for uuid
+        :param: uuid - agent uuid
+        :returns: list of tuples (time, message)
+        """
+        if receiver is None:
+            return [(t, m) for t, m in self.alarm_messages.items()]
+        L = []
+        for timestamp, messages in self.alarm_messages.items():
+            L.extend([(timestamp, m) for m in messages if m.receiver == receiver])
+        return L
 
     def clear_alarms(self, uuid=None, message=None):
         """
@@ -658,6 +686,10 @@ class Scheduler(object):
             raise ValueError("Alarm time is in the past")
 
         self.clock.set_alarm(delay=delay, signal=alarm_message, ignore_alarm_if_idle=ignore_alarm_if_idle)
+
+    def list_alarms(self, receiver=None):
+        """returns list of alarms for uuid"""
+        return self.clock.list_alarms(receiver)
 
     def subscribe(self, subscriber, target=None, topic=None):
         """ subscribe lets the Agent react to SubscribeMessage and adds the subscriber.
