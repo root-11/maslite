@@ -691,6 +691,10 @@ class Scheduler(object):
         """returns list of alarms for uuid"""
         return self.clock.list_alarms(receiver)
 
+    def clear_alarms(self, uuid=None, message=None):
+        """ removes alarms set for uuid or, when a message is given, just that alarm."""
+        self.clock.clear_alarms(uuid, message)
+
     def subscribe(self, subscriber, target=None, topic=None):
         """ subscribe lets the Agent react to SubscribeMessage and adds the subscriber.
         to registered subscribers. Used by default during `_setup` by all agents.
