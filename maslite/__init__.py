@@ -310,10 +310,8 @@ class Agent(object):
 
     def clear_alarms(self, receiver=None):
         """
-        :param alarm_message: optional, if provided, the alarm associated with the given message is removed.
-            if not provided, all previously set alarms are removed.
-        :param if specified only alarms with set topic are removed.
-            otherwise all alarms for this agent are removed.
+        :param receiver: when provided, the alarms associated with the given receiver are removed.
+            if None, self.uuid is used.
         """
         if receiver is None:
             receiver = self.uuid
@@ -469,14 +467,16 @@ class Clock(object):
         """
         registry = self.registry[receiver]
         assert isinstance(registry, AlarmRegistry)
-        return [(t,m) for t,m in registry.alarms.items()]
+        return [(t, m) for t, m in registry.alarms.items()]
 
     def clear_alarms(self, receiver=None):
         """
         :param receiver: receiver of the alarm. If None, all alarms are cleared.
         """
         if receiver is not None:
-            registry = self.registry[receiver]
+            registry = self.registry.get(receiver,None)
+            if not registry:
+                return
             assert isinstance(registry, AlarmRegistry)
             registry.clear_alarms()
 
