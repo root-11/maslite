@@ -500,12 +500,64 @@ class SimulationClock(Clock):
         self._time = 0
 
     def tick(self):
-        if self.scheduler_api.needs_update:
+        if self.scheduler_api.mail_queue:
+            pass  # don't progress time, there are new messages to handle
+        elif self.scheduler_api.needs_update:
             pass  # don't progress time, agents are updating.
         elif self.alarm_time:  # jump in time to the next alarm.
             self._time = min(self.alarm_time)
         else:
             pass
+        return
+
+
+class MailingList(object):
+    __slots__ = ['directory']
+
+    def __init__(self):
+        self.directory = defaultdict(dict)
+
+    def topics(self):
+        return self.directory.keys()
+
+    def subscribe(self, subscriber, target=None, topic=None):
+        """ subscribe to messages intended for target/topic
+        :param subscriber: subscriber id
+        :param target: target id (optional)
+        :param topic: topic (optional)
+
+        If target and topic: only messages of topic for target will be received.
+        if target, no topic: messages for target will be received.
+        if topic, no target: message with said topic will be received.
+        """
+        if topic not in self.directory[target]:
+            self.directory[target][topic] = set()
+        self.directory[target][topic].add(subscriber)  # target registry:
+
+        if target not in self.directory[topic]:
+            self.directory[topic][target] = set()
+        self.directory[topic][target].add(subscriber)  # topic registry
+
+    def unsubscribe(self, subscriber, target=None, topic=None):
+        try:
+            self.directory[target][topic].discard(subscriber)
+        except KeyError:
+            pass
+        try:
+            self.directory[topic][target].discard(subscriber)
+        except KeyError:
+            pass
+
+    def get_subscriber_list(self, target=None, topic=None):
+        try:
+            if target and topic:  # only retrieve subscribers of target on topic.
+                return self.directory[target][topic]
+            if target is not None:  # only retrieve subscribers of target ALL topics.
+                return {v for z in self.directory[target].values() for v in z}
+            if topic is not None:  # only retrieve subscribers of topic ALL agents.
+                return self.directory[topic][target]
+        except KeyError:
+            return set()
 
 
 class Scheduler(object):
@@ -520,7 +572,7 @@ class Scheduler(object):
         else:
             self.clock = SimulationClock(scheduler_api=self)
         self.mail_queue = deque()
-        self.mailing_lists = defaultdict(set)
+        self.mailing_lists = MailingList()
         self.agents = dict()
         self.needs_update = set()
         self.has_keep_awake = set()
@@ -674,25 +726,9 @@ class Scheduler(object):
         """
         for msg in self.mail_queue:
             assert isinstance(msg, AgentMessage)
-            topic = msg.topic
-            receiver = msg.receiver
-            recipients = set()
-            # 1. collect the list of recipients
-
-            if (None, receiver) in self.mailing_lists:  # then it's a tracked receiver.
-                recipients.update(self.mailing_lists[(None, receiver)])
-
-            if (topic, None) in self.mailing_lists:  # then it's a tracked topic
-                recipients.update(self.mailing_lists[(topic, None)])
-
-            if (topic, receiver) in self.mailing_lists:  # then it's tracked topic and receiver.
-                recipients.update(self.mailing_lists[(topic, receiver)])
-
-            # 2. distribute the mail.
-            if recipients:  # receiver is not in self.mailing_lists, so s/h/it might be moving.
+            recipients = self.mailing_lists.get_subscriber_list(target=msg.receiver, topic=msg.topic)
+            if recipients:
                 self.send_to_recipients(msg=msg, recipients=recipients)
-            else:
-                self.log(level=DEBUG, msg="{} is not registered on a mailing list.".format(receiver))
         self.mail_queue.clear()
 
     def send_to_recipients(self, msg, recipients):
@@ -717,25 +753,32 @@ class Scheduler(object):
     def subscribe(self, subscriber=None, target=None, topic=None):
         """ subscribe lets the Agent react to SubscribeMessage and adds the subscriber.
         to registered subscribers. Used by default during `_setup` by all agents.
-        :param subscriber: the agent uuid listening to messages
-        :param target: the agent receiving messages
-        :param topic: the topic received by the target
 
-        Notes: The method adds agent to subscriber list.
-        Any agent may subscribe for the same topic many times (this is managed)
+        subscribe to messages intended for target/topic
+        :param subscriber: subscriber id
+        :param target: target id (optional)
+        :param topic: topic (optional)
+
+        If target and topic: only messages of topic for target will be received.
+        if target, no topic: messages for target will be received.
+        if topic, no target: message with said topic will be received.
+
+        Any agent may subscribe for the same topic many times (this is idempotent)
         """
         if subscriber not in self.agents:
             raise ValueError(f"subscriber {subscriber} unknown")
+        if topic in self.agents:
+            raise ValueError(f"{topic} is also id of a registered agent: {self.agents[topic]}")
 
-        key = (topic, target)
-        if key not in self.mailing_lists:
-            self.log(level=DEBUG, msg=f"topic added: {topic}")
-
-        if subscriber not in self.mailing_lists[key]:
-            self.mailing_lists[key].add(subscriber)
-            self.log(level=DEBUG, msg=f"{subscriber} subscribing to topic: {key}")
+        if target and topic:
+            self.log(level=DEBUG, msg=f"{subscriber} subscribing to {target} on topic {topic} only")
+        elif target is not None:
+            self.log(level=DEBUG, msg=f"{subscriber} subscribing to {target} on all topics.")
+        elif topic is not None:
+            self.log(level=DEBUG, msg=f"{subscriber} subscribing to topics for all agents.")
         else:
-            self.log(level=DEBUG, msg=f"{subscriber} already subscribing to topic: {key}")
+            raise ValueError(f"no target and no topic.")
+        self.mailing_lists.subscribe(subscriber, topic, target)
 
     def unsubscribe(self, subscriber, target=None, topic=None):
         """ unsubscribes a subscriber from messages.
@@ -743,17 +786,9 @@ class Scheduler(object):
         :param target: the agent receiving messages
         :param topic: the topic received by the target
         """
-        if any((topic, target)):
-            key = (topic, target)
-            self.mailing_lists[key].discard(subscriber)
-            if len(self.mailing_lists[key]) == 0:
-                del self.mailing_lists[key]
-        else:  # the long way
-            keys = [key for key, subscribers in self.mailing_lists.items() if subscriber in subscribers]
-            for key in keys:
-                self.mailing_lists[key].discard(subscriber)
-                if not self.mailing_lists[key]:
-                    del self.mailing_lists[key]
+        if not target and not topic:
+            raise ValueError(f"no target and no topic.")
+        self.mailing_lists.unsubscribe(subscriber, target, topic)
 
     def get_subscriber_list(self, target=None, topic=None):
         """ Returns the list of subscribers of a particular topic for particular topics.
@@ -761,11 +796,11 @@ class Scheduler(object):
         :param topic: the topic received by the target
         :return list of subscribers
         """
-        key = (topic, target)
-        return [i for i in self.mailing_lists.get(key)]
+        if not target and not topic:
+            raise ValueError(f"no target and no topic.")
+        return self.mailing_lists.get_subscriber_list(target, topic)
 
     def get_subscription_topics(self):
         """ Returns the list of subscription topics"""
-        return [t for t in self.mailing_lists.keys()]
-
+        return [t for t in self.mailing_lists.topics() if t not in self.agents]
 
