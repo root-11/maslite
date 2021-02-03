@@ -12,7 +12,7 @@ isolation and any similarity to other systems is purely coincidental.
 
 --------------
 
-**New in version 2021.2.2**
+**New in version 2021.2.2+**
 
 - dropping support for python 3.5. 
 
@@ -27,6 +27,11 @@ isolation and any similarity to other systems is purely coincidental.
 
 - `Agent.set_alarm(..., relative=True, ....)`   
   defaults to True as most use cases use the alarm as "check again in x seconds"
+  
+- `Agent.list_alarms(receiver=None)`
+  returns a list of (time, alarm message) set for the receiver.
+  > Allows, for example, an agent A to read whether an alarm has been set for agent B, and
+  > thereby refrain from setting an additional alarm.
 
 - broadcasts are disabled. To have broadcast-like methods, each agent must subscribe first.
   
