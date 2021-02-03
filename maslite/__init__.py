@@ -114,6 +114,8 @@ class Agent(object):
         """
         :param uuid: None (default). Should only be set for inspection purposes.
         """
+        self._clock = None
+        self._scheduler_api = None
         self.inbox = deque()  # when using self.receive() we get the messages from here
         if uuid is None:
             self._uuid = next(Agent.uuid_counter)  # this is our worldwide unique id.
@@ -123,7 +125,6 @@ class Agent(object):
             except TypeError:
                 raise TypeError("uuid must be hashable.")
             self._uuid = uuid
-        self._scheduler_api = None
         self.operations = dict()  # this is the link between msg.topic and agents response.
         self.keep_awake = False  # this prevents the agent from entering sleep mode when there
         # are no new messages.
@@ -137,8 +138,8 @@ class Agent(object):
     @property
     def time(self):
         """ returns time as float"""
-        assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
-        return self._scheduler_api.clock.time
+        assert isinstance(self._clock, Clock), "agent must be added to scheduler using scheduler.add(agent)"
+        return self._clock.time
 
     @property
     def uuid(self):
@@ -291,11 +292,11 @@ class Agent(object):
         if not isinstance(alarm_message, AgentMessage):
             raise TypeError("expected AgentMessage")
 
-        assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
-        self._scheduler_api.set_alarm(alarm_time=alarm_time,
-                                      alarm_message=alarm_message,
-                                      relative=relative,
-                                      ignore_alarm_if_idle=ignore_alarm_if_idle)
+        assert isinstance(self._clock, Clock), "agent must be added to scheduler using scheduler.add(agent)"
+        delay = alarm_time if relative else alarm_time - self.time
+        self._clock.set_alarm(delay=delay,
+                              alarm_message=alarm_message,
+                              ignore_alarm_if_idle=ignore_alarm_if_idle)
 
     def list_alarms(self, receiver=None):
         """ returns list of alarms set by agent.
@@ -304,17 +305,20 @@ class Agent(object):
         """
         if receiver is None:
             receiver = self.uuid
-        assert isinstance(self._scheduler_api, Scheduler)
-        return self._scheduler_api.list_alarms(receiver)
+        assert isinstance(self._clock, Clock), "forgot Scheduler.add(Agent)?"
+        return self._clock.list_alarms(receiver)
 
-    def remove_alarm(self, alarm_message=None):
+    def clear_alarms(self, receiver=None):
         """
         :param alarm_message: optional, if provided, the alarm associated with the given message is removed.
             if not provided, all previously set alarms are removed.
         :param if specified only alarms with set topic are removed.
             otherwise all alarms for this agent are removed.
         """
-        self._scheduler_api.clear_alarms(uuid=self.uuid, alarm_message=alarm_message)
+        if receiver is None:
+            receiver = self.uuid
+        assert isinstance(self._clock, Clock)
+        self._clock.clear_alarms(receiver=receiver)
 
     def subscribe(self, target=None, topic=None):
         """
@@ -375,14 +379,35 @@ class SchedulerException(MasLiteException):
     pass
 
 
+class AlarmRegistry(object):
+    def __init__(self, uuid):
+        self.uuid = uuid
+        self.alarms = defaultdict(list)
+
+    def clear_alarms(self):
+        self.alarms.clear()
+
+    def set_alarm(self, wakeup_time, message):
+        self.alarms[wakeup_time].append(message)
+
+    def release_alarm(self, timestamp):
+        alarms = []
+        for t2, msgs in self.alarms.copy().items():
+            if t2 <= timestamp:
+                alarms.extend(msgs[:])
+            del self.alarms[t2]
+        return alarms
+
+
 class Clock(object):
     def __init__(self, scheduler_api):
         if not isinstance(scheduler_api, Scheduler):
             raise TypeError
         self.scheduler_api = scheduler_api
         self._time = None
-        self.alarms = []
-        self.alarm_messages = defaultdict(list)
+        self.registry = dict()
+        self.alarm_time = []
+        self.clients_to_wake_up = defaultdict(list)
         self.last_required_alarm = -1
 
     @property
@@ -390,56 +415,74 @@ class Clock(object):
         return self._time
 
     def __str__(self):
-        return f"{self.__class__.__name__}: {self.time} {len(self.alarms)} alarms pending"
+        return f"{self.__class__.__name__}: {self.time} {len(self.alarm_time)} alarms pending"
 
     def tick(self):
         """ progresses time by one tick."""
         raise NotImplementedError("sub classes implement this so that _time is updated.")
 
     def release_alarm_messages(self):
-        for timestamp in self.alarms:  # alarms are already sorted.
+        """ releases alarms to the mail queue (whereafter Agent.update will be called). """
+        for timestamp in self.alarm_time[:]:  # alarms are already sorted.
             if timestamp > self._time:
                 return
-            self.scheduler_api.mail_queue.extend(self.alarm_messages[timestamp][:])
-            del self.alarm_messages[timestamp]
-            self.alarms.remove(timestamp)
 
-    def set_alarm(self, delay, signal, ignore_alarm_if_idle):
+            list_of_messages = []
+            clients = self.clients_to_wake_up[timestamp]
+            for client in clients:
+                registry = self.registry[client]
+                assert isinstance(registry, AlarmRegistry)
+                list_of_messages.extend(registry.release_alarm(timestamp))
+
+            self.scheduler_api.mail_queue.extend(list_of_messages)
+            del self.clients_to_wake_up[timestamp]
+            self.alarm_time.remove(timestamp)
+
+    def set_alarm(self, delay, alarm_message, ignore_alarm_if_idle):
+        """
+        :param delay: time delay from Agent.time until wakeup.
+        :param alarm_message: AgentMessage
+        :param ignore_alarm_if_idle: boolean - scheduler will ignore alarm if no messages
+        are exchanged.
+        """
         assert isinstance(delay, (int, float))
-        assert isinstance(signal, AgentMessage)
+        assert isinstance(alarm_message, AgentMessage)
         assert isinstance(ignore_alarm_if_idle, bool)
         wakeup_time = self.time + delay
         if ignore_alarm_if_idle is False:
             self.last_required_alarm = max(self.last_required_alarm, wakeup_time)
-        insort(self.alarms, wakeup_time)  # smallest first!
-        self.alarm_messages[wakeup_time].append(signal)
 
-    def list_alarms(self, receiver=None):
+        insort(self.alarm_time, wakeup_time)  # smallest first!
+
+        registry = self.registry.get(alarm_message.receiver, None)
+        if registry is None:
+            registry = AlarmRegistry(alarm_message.receiver)
+            self.registry[alarm_message.receiver] = registry
+        registry.set_alarm(wakeup_time, alarm_message)
+
+        self.clients_to_wake_up[wakeup_time].append(alarm_message.receiver)
+
+    def list_alarms(self, receiver):
         """ returns alarms set for uuid
-        :param: uuid - agent uuid
+        :param: receiver
         :returns: list of tuples (time, message)
         """
-        if receiver is None:
-            return [(t, m) for t, m in self.alarm_messages.items()]
-        L = []
-        for timestamp, messages in self.alarm_messages.items():
-            L.extend([(timestamp, m) for m in messages if m.receiver == receiver])
-        return L
+        registry = self.registry[receiver]
+        assert isinstance(registry, AlarmRegistry)
+        return [(t,m) for t,m in registry.alarms.items()]
 
-    def clear_alarms(self, uuid=None, message=None):
+    def clear_alarms(self, receiver=None):
         """
-        :param uuid: setter of the alarm.
-        :param message: alarm message to be removed.
+        :param receiver: receiver of the alarm. If None, all alarms are cleared.
         """
-        if message is not None:  # the long way.
-            for timestamp in self.alarm_messages.copy():
-                self.alarm_messages[timestamp] = [s for s in self.alarm_messages[timestamp] if s != message]
-        elif uuid is not None:
-            for timestamp in self.alarm_messages.copy():
-                self.alarm_messages[timestamp] = [s for s in self.alarm_messages[timestamp] if s.receiver != uuid]
+        if receiver is not None:
+            registry = self.registry[receiver]
+            assert isinstance(registry, AlarmRegistry)
+            registry.clear_alarms()
+
         else:
-            self.alarms.clear()
-            self.alarm_messages.clear()
+            self.alarm_time.clear()
+            self.clients_to_wake_up.clear()
 
 
 class RealTimeClock(Clock):
@@ -459,8 +502,8 @@ class SimulationClock(Clock):
     def tick(self):
         if self.scheduler_api.needs_update:
             pass  # don't progress time, agents are updating.
-        elif self.alarms:  # jump in time to the next alarm.
-            self._time = min(self.alarms)
+        elif self.alarm_time:  # jump in time to the next alarm.
+            self._time = min(self.alarm_time)
         else:
             pass
 
@@ -513,6 +556,8 @@ class Scheduler(object):
             raise SchedulerException("Agent uuid already in usage.")
         self.agents[agent.uuid] = agent
         agent._scheduler_api = self
+        agent._clock = self.clock
+
         self.subscribe(subscriber=agent.uuid, target=agent.uuid)
         self.subscribe(subscriber=agent.uuid, topic=agent.__class__.__name__)
         agent.setup()
@@ -669,33 +714,7 @@ class Scheduler(object):
     def pause(self):
         self._quit = True
 
-    def set_alarm(self, alarm_time, alarm_message, relative, ignore_alarm_if_idle):
-        """
-        :param alarm_time: time for the alarm (relative or absolute)
-        :param alarm_message: AgentMessage.
-        :param relative: bool: if true, alarm_time = clock.time + alarm_time
-                                else, alarm_time is taken as an absolute value
-        :param ignore_alarm_if_idle: Allows the scheduler to stop if no other messages are exchanged.
-        """
-        if relative:
-            delay = alarm_time
-        else:
-            delay = alarm_time - self.clock.time
-
-        if delay < 0:
-            raise ValueError("Alarm time is in the past")
-
-        self.clock.set_alarm(delay=delay, signal=alarm_message, ignore_alarm_if_idle=ignore_alarm_if_idle)
-
-    def list_alarms(self, receiver=None):
-        """returns list of alarms for uuid"""
-        return self.clock.list_alarms(receiver)
-
-    def clear_alarms(self, uuid=None, message=None):
-        """ removes alarms set for uuid or, when a message is given, just that alarm."""
-        self.clock.clear_alarms(uuid, message)
-
-    def subscribe(self, subscriber, target=None, topic=None):
+    def subscribe(self, subscriber=None, target=None, topic=None):
         """ subscribe lets the Agent react to SubscribeMessage and adds the subscriber.
         to registered subscribers. Used by default during `_setup` by all agents.
         :param subscriber: the agent uuid listening to messages

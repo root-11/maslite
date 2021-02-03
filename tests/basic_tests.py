@@ -202,12 +202,12 @@ def tests_add_to_scheduler():
     alarm_msg = TestMessage(sender=a, receiver=a, topic="Alarm!!!")
 
     a.set_alarm(alarm_time=1, alarm_message=alarm_msg, relative=True, ignore_alarm_if_idle=False)
-    assert len(s.clock.alarms) == 1
+    assert len(s.clock.alarm_time) == 1
     start = time.time()
     s.run(clear_alarms_at_end=True, pause_if_idle=True)
     end = time.time()
     assert 0.95 < end - start < 1.05
-    assert len(s.clock.alarms) == 0
+    assert len(s.clock.alarm_time) == 0
     alarm = a.receive()
     assert alarm_msg.topic == alarm.topic
 
