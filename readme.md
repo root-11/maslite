@@ -7,8 +7,9 @@
 # MASlite
 A multi-agent platform contrived by [Bjorn Madsen](https://uk.linkedin.com/in/bmadsen)
 
-All right reserved &copy; 2016-2019. All code has been written by the author in 
-isolation and any similarity to other systems is purely coincidental.
+All right reserved &copy; 2016-2021. MIT-license. 
+All code has been written by the author in isolation and any similarity 
+to other systems is purely coincidental. 
 
 --------------
 
@@ -16,14 +17,14 @@ isolation and any similarity to other systems is purely coincidental.
 
 - dropping support for python 3.5. 
 
-- subscribe now permits topic and agent id.
+- subscribe now permits topic and agent id to limit the messages received.
 
 - copy does no longer use deepcopy and will raise if you don't have a copy method!  
   Let me emphasise: All messages must have a `copy()` method.
 
 - The `Scheduler` class must be initiated with one of two modes: real-time and simulated time.
-  - real-time uses the clock / time.time()
-  - simulated time uses a jumping clock.
+  - real-time uses the clock / time.time() **(default)**
+  - simulated time uses a jumping clock. 
 
 - `Agent.set_alarm(..., relative=True, ....)`   
   defaults to True as most use cases use the alarm as "check again in x seconds"
@@ -33,7 +34,8 @@ isolation and any similarity to other systems is purely coincidental.
   > Allows, for example, an agent A to read whether an alarm has been set for agent B, and
   > thereby refrain from setting an additional alarm.
 
-- broadcasts are disabled. To have broadcast-like methods, each agent must subscribe first.
+- broadcasts are subscription based. To have broadcast-like methods, each agent must subscribe first.
+  By default agents subscribe to their uuid and class name. But beware: 
   
   > Some users have been surprised that the broadcasting method could overflow their memory usage, so this is a safeguard. 
   In the auction demo, 1000 sellers sending 1 offer to each of 1000 buyers which generates 1,000,000 messages. 
