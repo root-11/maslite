@@ -378,6 +378,8 @@ class SchedulerException(MasLiteException):
 
 
 class AlarmRegistry(object):
+    __slots__ = ['uuid', 'alarms']
+
     def __init__(self, uuid):
         self.uuid = uuid
         self.alarms = defaultdict(list)
@@ -474,7 +476,7 @@ class Clock(object):
         :param receiver: receiver of the alarm. If None, all alarms are cleared.
         """
         if receiver is not None:
-            registry = self.registry.get(receiver,None)
+            registry = self.registry.get(receiver, None)
             if not registry:
                 return
             assert isinstance(registry, AlarmRegistry)
@@ -518,7 +520,7 @@ class MailingList(object):
         self.directory = defaultdict(dict)
 
     def topics(self):
-        return self.directory.keys()
+        return set(self.directory.keys()) - {None}
 
     def subscribe(self, subscriber, target=None, topic=None):
         """ subscribe to messages intended for target/topic
@@ -530,21 +532,30 @@ class MailingList(object):
         if target, no topic: messages for target will be received.
         if topic, no target: message with said topic will be received.
         """
-        if topic not in self.directory[target]:
-            self.directory[target][topic] = set()
-        self.directory[target][topic].add(subscriber)  # target registry:
+        self._add(subscriber, target, topic)  # target registry:
+        self._add(subscriber, topic, target)  # topic registry
 
-        if target not in self.directory[topic]:
-            self.directory[topic][target] = set()
-        self.directory[topic][target].add(subscriber)  # topic registry
+    def _add(self, a, b, c):
+        """ insert helper """
+        if c not in self.directory[b]:
+            self.directory[b][c] = set()
+        self.directory[b][c].add(a)
+
+    def _remove(self, a, b, c):
+        """ cleanup helper """
+        self.directory[b][c].discard(a)
+        if not self.directory[b][c]:
+            del self.directory[b][c]
+        if not self.directory[b]:
+            del self.directory[b]
 
     def unsubscribe(self, subscriber, target=None, topic=None):
         try:
-            self.directory[target][topic].discard(subscriber)
+            self._remove(subscriber, target, topic)
         except KeyError:
             pass
         try:
-            self.directory[topic][target].discard(subscriber)
+            self._remove(subscriber, topic, target)
         except KeyError:
             pass
 
@@ -558,6 +569,19 @@ class MailingList(object):
                 return self.directory[topic][target]
         except KeyError:
             return set()
+
+    def get_mail_recipients(self, message):
+        assert isinstance(message, AgentMessage)
+        recipients = set()
+        if message.receiver is not None:
+            recipients.update(self.directory[message.receiver][None])
+            if message.topic in self.directory[message.receiver]:
+                recipients.update(self.directory[message.receiver][message.topic])
+
+        if message.topic in self.directory:
+            recipients.update(self.directory[message.topic][None])
+
+        return recipients
 
 
 class Scheduler(object):
@@ -636,7 +660,10 @@ class Scheduler(object):
 
         self.log(level=DEBUG, msg="DeRegistering agent {}".format(agent.uuid))
         agent.teardown()
-        self.unsubscribe(subscriber=agent.uuid, target=None, topic=None)
+
+        self.unsubscribe(subscriber=agent.uuid, target=agent.uuid)
+        self.unsubscribe(subscriber=agent.uuid, topic=agent.__class__.__name__)
+
         if agent.uuid in self.needs_update:
             self.needs_update.remove(agent.uuid)
         if agent.uuid in self.has_keep_awake:
@@ -726,7 +753,7 @@ class Scheduler(object):
         """
         for msg in self.mail_queue:
             assert isinstance(msg, AgentMessage)
-            recipients = self.mailing_lists.get_subscriber_list(target=msg.receiver, topic=msg.topic)
+            recipients = self.mailing_lists.get_mail_recipients(message=msg)
             if recipients:
                 self.send_to_recipients(msg=msg, recipients=recipients)
         self.mail_queue.clear()
@@ -802,5 +829,5 @@ class Scheduler(object):
 
     def get_subscription_topics(self):
         """ Returns the list of subscription topics"""
-        return [t for t in self.mailing_lists.topics() if t not in self.agents]
+        return self.mailing_lists.topics()
 

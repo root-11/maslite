@@ -1,7 +1,7 @@
 import logging
 import time
 from collections import deque
-from maslite import Agent, AgentMessage, Scheduler, SchedulerException
+from maslite import Agent, AgentMessage, Scheduler, SchedulerException, MailingList
 
 LOG_LEVEL = logging.INFO
 
@@ -108,6 +108,30 @@ def tests_message_exchange():
         assert True
 
 
+def test_subscriptions():
+    m = MailingList()
+
+    m.subscribe(1, 1)
+    m.subscribe(1, topic="A")
+    assert m.get_subscriber_list(target=1) == {1}
+    assert m.get_subscriber_list(topic='A') == {1}
+
+    m.subscribe(2, target=1, topic='B')
+    assert m.get_subscriber_list(target=1, topic='B') == {2}
+
+    assert m.get_subscriber_list(target=1) == {1, 2}
+
+    m.subscribe(3, target=1)
+    assert m.get_subscriber_list(target=1) == {1, 2, 3}
+
+    assert m.get_subscriber_list(topic='A') == {1}
+    assert m.get_subscriber_list(topic='C') == set()
+    assert m.get_subscriber_list(topic='B') == set()
+
+    m.subscribe(4, 1, 'Z')
+    m.unsubscribe(4)  # mailing list doesn't care, but scehduler will complain.
+
+
 def tests_add_to_scheduler():
     s = Scheduler()
     a = Agent()
@@ -121,14 +145,14 @@ def tests_add_to_scheduler():
     assert a.count_setups == 1
     assert a.get_subscription_topics() == s.get_subscription_topics(), "these should be the same"
 
-    assert a.uuid in {uid for topic, uid in a.get_subscription_topics()}
-    assert a.__class__.__name__ in {topic for topic, uid in a.get_subscription_topics()}
+    assert a.uuid in a.get_subscription_topics()
+    assert a.__class__.__name__ in a.get_subscription_topics()
     a.unsubscribe(topic=a.__class__.__name__)
-    assert a.uuid in {uid for topic, uid in a.get_subscription_topics()}
-    assert a.__class__.__name__ not in {topic for topic, uid in a.get_subscription_topics()}
+    assert a.uuid in a.get_subscription_topics()
+    assert a.__class__.__name__ not in a.get_subscription_topics()
     assert a.uuid in a.get_subscriber_list(a.uuid)
     a.subscribe(topic=a.__class__.__name__)
-    assert a.__class__.__name__ in {topic for topic, uid in a.get_subscription_topics()}
+    assert a.__class__.__name__ in a.get_subscription_topics()
 
     assert a.messages is False
     m = TestMessage(sender=a, receiver=a)
@@ -173,7 +197,7 @@ def tests_add_to_scheduler():
     b = TestAgent()
     a.add(b)
     assert b.uuid in s.agents
-    assert b.uuid in {uid for topic, uid in a.get_subscription_topics()}
+    assert b.uuid in a.get_subscription_topics()
 
     try:
         a.add(b)
@@ -183,7 +207,7 @@ def tests_add_to_scheduler():
 
     a.remove(b.uuid)
     assert b.uuid not in s.agents
-    assert b.uuid not in {uid for topic, uid in a.get_subscription_topics()}
+    assert b.uuid not in a.get_subscription_topics()
     a.add(b)
 
     s.run()
