@@ -452,7 +452,8 @@ class Clock(object):
         if ignore_alarm_if_idle is False:
             self.last_required_alarm = max(self.last_required_alarm, wakeup_time)
 
-        insort(self.alarm_time, wakeup_time)  # smallest first!
+        if wakeup_time not in self.alarm_time:
+            insort(self.alarm_time, wakeup_time)  # smallest first!
 
         registry = self.registry.get(alarm_message.receiver, None)
         if registry is None:
@@ -480,8 +481,11 @@ class Clock(object):
             if not registry:
                 return
             assert isinstance(registry, AlarmRegistry)
+            for timestamp in registry.alarms:
+                self.clients_to_wake_up[timestamp].remove(receiver)
+                if not self.clients_to_wake_up[timestamp]:
+                    self.alarm_time.remove(timestamp)
             registry.clear_alarms()
-
         else:
             self.alarm_time.clear()
             self.clients_to_wake_up.clear()

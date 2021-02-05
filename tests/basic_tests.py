@@ -302,6 +302,29 @@ class PingPongPlayer(Agent):
         self.send(ball)
 
 
+def test_clear_alarms():
+    s = Scheduler(real_time=False)
+    a = TestAgent()
+    b = TestAgent()
+    s.add(a)
+    s.add(b)
+    # set alarms for a and b, then clear them
+    alarm_msg = TestMessage(sender=a, receiver=a, topic="Alarm_b")
+    alarm_msg_b = TestMessage(sender=b, receiver=b, topic="Alarm_b")
+    a.set_alarm(alarm_time=1, alarm_message=alarm_msg, relative=True, ignore_alarm_if_idle=False)  # set for a by a
+    a.set_alarm(alarm_time=1, alarm_message=alarm_msg_b, relative=True, ignore_alarm_if_idle=False)  # set for b by a
+    b.set_alarm(alarm_time=2, alarm_message=alarm_msg_b, relative=True, ignore_alarm_if_idle=False)  # set for b by b
+    assert s.clock.alarm_time == [1, 2]  # alarms set at 1 and 2
+    assert a.list_alarms() == [(1, [alarm_msg])]
+    assert b.list_alarms() == [(1, [alarm_msg_b]), (2, [alarm_msg_b])]
+    b.clear_alarms()
+    assert s.clock.alarm_time == [1]  # only the alarm for a at 1 remains
+    a.clear_alarms(receiver=b.uuid)
+    assert s.clock.alarm_time == [1]  # the alarm for a at 1 still remains
+    b.clear_alarms(receiver=a.uuid)
+    assert s.clock.alarm_time == []
+
+
 def test_ping_pong_tests():
     s = Scheduler()
     limit = 5000
