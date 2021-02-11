@@ -513,6 +513,7 @@ class Clock(object):
 
                 if not self.clients_to_wake_up[timestamp]:
                     self.alarm_time.remove(timestamp)
+                    del self.clients_to_wake_up[timestamp]
         else:
             self.alarm_time.clear()
             self.clients_to_wake_up.clear()
