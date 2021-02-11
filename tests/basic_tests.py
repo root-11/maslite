@@ -325,6 +325,20 @@ def test_clear_alarms():
     assert s.clock.alarm_time == []
 
 
+def test_clear_alarms_by_topic():
+    s = Scheduler(real_time=False)
+    a = TestAgent()
+    s.add(a)
+    msg1 = TestMessage(sender=a, receiver=a, topic='1')
+    msg2 = TestMessage(sender=a, receiver=a, topic='2')
+    a.set_alarm(alarm_time=1, alarm_message=msg1, relative=True, ignore_alarm_if_idle=False)
+    a.set_alarm(alarm_time=3, alarm_message=msg2, relative=True, ignore_alarm_if_idle=False)
+    assert s.clock.alarm_time == [1, 3]
+    a.clear_alarms(receiver=a.uuid, topic='1')
+    assert s.clock.alarm_time == [3], s.clock.alarm_time
+    assert s.clock.list_alarms(a.uuid) == [(3, [msg2])]
+
+
 def test_ping_pong_tests():
     s = Scheduler()
     limit = 5000

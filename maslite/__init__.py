@@ -308,7 +308,7 @@ class Agent(object):
         assert isinstance(self._clock, Clock), "forgot Scheduler.add(Agent)?"
         return self._clock.list_alarms(receiver)
 
-    def clear_alarms(self, receiver=None):
+    def clear_alarms(self, receiver=None, topic=None):
         """
         :param receiver: when provided, the alarms associated with the given receiver are removed.
             if None, self.uuid is used.
@@ -316,7 +316,7 @@ class Agent(object):
         if receiver is None:
             receiver = self.uuid
         assert isinstance(self._clock, Clock)
-        self._clock.clear_alarms(receiver=receiver)
+        self._clock.clear_alarms(receiver=receiver, topic=topic)
 
     def subscribe(self, target=None, topic=None):
         """
@@ -384,8 +384,31 @@ class AlarmRegistry(object):
         self.uuid = uuid
         self.alarms = defaultdict(list)
 
-    def clear_alarms(self):
-        self.alarms.clear()
+    def clear_alarms(self, timestamp=None, topic=None):
+        if not self.alarms:
+            return
+
+        if timestamp is None:
+            if topic is None:
+                self.alarms.clear()
+            else:
+                for timestamp, msgs in self.alarms.copy().items():
+                    self._filter_alarms(timestamp, topic)
+        else:
+            if topic is None:
+                del self.alarms[timestamp]
+            else:
+                self._filter_alarms(timestamp, topic)
+
+    def _filter_alarms(self, timestamp, topic):
+        msgs = [m for m in self.alarms[timestamp] if m.topic != topic]
+        if not msgs:
+            del self.alarms[timestamp]
+        else:
+            self.alarms[timestamp] = msgs
+
+    def has_alarm(self, timestamp):
+        return True if self.alarms.get(timestamp, None) is not None else False
 
     def set_alarm(self, wakeup_time, message):
         self.alarms[wakeup_time].append(message)
@@ -472,20 +495,24 @@ class Clock(object):
         assert isinstance(registry, AlarmRegistry)
         return [(t, m) for t, m in registry.alarms.items()]
 
-    def clear_alarms(self, receiver=None):
+    def clear_alarms(self, receiver=None, topic=None):
         """
         :param receiver: receiver of the alarm. If None, all alarms are cleared.
+        :param topic: optional, message topic to be cleared.
         """
         if receiver is not None:
             registry = self.registry.get(receiver, None)
             if not registry:
                 return
+
             assert isinstance(registry, AlarmRegistry)
-            for timestamp in registry.alarms:
-                self.clients_to_wake_up[timestamp].remove(receiver)
+            for timestamp in registry.alarms.copy():
+                registry.clear_alarms(timestamp, topic)
+                if not registry.has_alarm(timestamp):
+                    self.clients_to_wake_up[timestamp].remove(receiver)
+
                 if not self.clients_to_wake_up[timestamp]:
                     self.alarm_time.remove(timestamp)
-            registry.clear_alarms()
         else:
             self.alarm_time.clear()
             self.clients_to_wake_up.clear()
