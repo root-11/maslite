@@ -418,7 +418,7 @@ class AlarmRegistry(object):
         for t2, msgs in self.alarms.copy().items():
             if t2 <= timestamp:
                 alarms.extend(msgs[:])
-            del self.alarms[t2]
+                del self.alarms[t2]
         return alarms
 
 
