@@ -338,7 +338,7 @@ class Agent(object):
         assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
         self._scheduler_api.subscribe(subscriber=self.uuid, target=target, topic=topic)
 
-    def unsubscribe(self, target=None, topic=None):
+    def unsubscribe(self, target=None, topic=None, everything=False):
         """ A method to be used by the agent to unset and unsubscribe to a particular topic
         :param target: string or None. If None, the agent unsubscribes to topic.
         :param topic: string or None. If None, the agent unsubscribes from everything.
@@ -346,11 +346,15 @@ class Agent(object):
         Note that all agents automatically unsubscribe at teardown.
         """
         assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
-        self._scheduler_api.unsubscribe(subscriber=self.uuid, target=target, topic=topic)
+        self._scheduler_api.unsubscribe(subscriber=self.uuid, target=target, topic=topic, everything=everything)
 
     def get_subscriber_list(self, target=None, topic=None):
         assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
         return self._scheduler_api.get_subscriber_list(target=target, topic=topic)
+
+    def get_subscriptions(self):
+        """ return dict of subscriptions """
+        return self._scheduler_api.get_subscriptions(self.uuid)
 
     def get_subscription_topics(self):
         assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
@@ -546,10 +550,12 @@ class SimulationClock(Clock):
 
 
 class MailingList(object):
-    __slots__ = ['directory']
+
+    __slots__ = ['directory', 'subscriptions']
 
     def __init__(self):
         self.directory = defaultdict(dict)
+        self.subscriptions = defaultdict(dict)
 
     def topics(self):
         return set(self.directory.keys()) - {None}
@@ -564,8 +570,12 @@ class MailingList(object):
         if target, no topic: messages for target will be received.
         if topic, no target: message with said topic will be received.
         """
-        self._add(subscriber, target, topic)  # target registry:
-        self._add(subscriber, topic, target)  # topic registry
+        self._add(a=subscriber, b=target, c=topic)  # target registry:
+        self._add(a=subscriber, b=topic, c=target)  # topic registry
+
+        if topic not in self.subscriptions[subscriber]:
+            self.subscriptions[subscriber][topic] = set()
+        self.subscriptions[subscriber][topic].add(target)
 
     def _add(self, a, b, c):
         """ insert helper """
@@ -581,15 +591,58 @@ class MailingList(object):
         if not self.directory[b]:
             del self.directory[b]
 
-    def unsubscribe(self, subscriber, target=None, topic=None):
-        try:
-            self._remove(subscriber, target, topic)
-        except KeyError:
-            pass
-        try:
+    def unsubscribe(self, subscriber, target=None, topic=None, everything=False):
+        """
+        :param subscriber: the subscribing agent
+        :param target: hashable
+        :param topic: hashable
+        :param everything: Unsubscribes from all mailing lists.
+
+        if everything: all subscriptions are removed.
+        if target and topic: only subscription on target + topic will be removed.
+        if target only: all subscribers subscriptions on target is removed.
+            None of the targets own subscriptions are affected.
+        if topic only: all the subscribers subscriptions to topic is removed.
+            None of the target subscriptions to said topic are removed.
+        """
+        if subscriber not in self.subscriptions: raise ValueError(f"subscriber {subscriber} unknown.")
+        if everything is False and target is None and topic is None: raise ValueError("please read the docstring. ")
+
+        if everything:
+            for topic, target_set in self.subscriptions[subscriber].items():
+                for target in target_set:
+                    self._remove(subscriber, topic, target)
+                    self._remove(subscriber, target, topic)
+            del self.subscriptions[subscriber]
+
+        elif target is not None and topic is not None:
+            target_set = self.subscriptions[subscriber][topic]
+            assert isinstance(target_set, set)
+            target_set.remove(target)
+            if not target_set:
+                del self.subscriptions[subscriber][topic]
             self._remove(subscriber, topic, target)
-        except KeyError:
-            pass
+
+        elif target is not None:
+            for subtopic, target_set in self.subscriptions[subscriber].copy().items():
+                if target in target_set:
+                    self._remove(subscriber, subtopic, target)
+                    self._remove(subscriber, target, subtopic)
+                if not target_set:
+                    del self.subscriptions[subscriber][topic]
+
+        elif topic is not None:
+            target_set = self.subscriptions[subscriber][topic]
+            for target in target_set:
+                self._remove(subscriber, topic, target)
+            del self.subscriptions[subscriber][topic]
+
+        else:
+            raise Exception('Bad logic')
+
+    def get_subscriptions(self, subscriber):
+        """ returns a copy of """
+        return self.subscriptions[subscriber].copy()
 
     def get_subscriber_list(self, target=None, topic=None):
         try:
@@ -676,8 +729,8 @@ class Scheduler(object):
         agent._scheduler_api = self
         agent._clock = self.clock
 
-        self.subscribe(subscriber=agent.uuid, target=agent.uuid)
-        self.subscribe(subscriber=agent.uuid, topic=agent.__class__.__name__)
+        self.subscribe(subscriber=agent.uuid, target=agent.uuid, topic=None)
+        self.subscribe(subscriber=agent.uuid, target=None, topic=agent.__class__.__name__)
         agent.setup()
 
         if agent.keep_awake:
@@ -703,8 +756,7 @@ class Scheduler(object):
         self.log(level=DEBUG, msg="DeRegistering agent {}".format(agent.uuid))
         agent.teardown()
 
-        self.unsubscribe(subscriber=agent.uuid, target=agent.uuid)
-        self.unsubscribe(subscriber=agent.uuid, topic=agent.__class__.__name__)
+        self.unsubscribe(subscriber=agent.uuid, everything=True)
 
         if agent.uuid in self.needs_update:
             self.needs_update.remove(agent.uuid)
@@ -847,17 +899,15 @@ class Scheduler(object):
             self.log(level=DEBUG, msg=f"{subscriber} subscribing to topics for all agents.")
         else:
             raise ValueError(f"no target and no topic.")
-        self.mailing_lists.subscribe(subscriber, topic, target)
+        self.mailing_lists.subscribe(subscriber=subscriber, topic=topic, target=target)
 
-    def unsubscribe(self, subscriber, target=None, topic=None):
+    def unsubscribe(self, subscriber, target=None, topic=None, everything=False):
         """ unsubscribes a subscriber from messages.
         :param subscriber: the agent uuid listening to messages
         :param target: the agent receiving messages
         :param topic: the topic received by the target
         """
-        if not target and not topic:
-            raise ValueError(f"no target and no topic.")
-        self.mailing_lists.unsubscribe(subscriber, target, topic)
+        self.mailing_lists.unsubscribe(subscriber, target, topic, everything=everything)
 
     def get_subscriber_list(self, target=None, topic=None):
         """ Returns the list of subscribers of a particular topic for particular topics.
@@ -872,4 +922,7 @@ class Scheduler(object):
     def get_subscription_topics(self):
         """ Returns the list of subscription topics"""
         return self.mailing_lists.topics()
+
+    def get_subscriptions(self, subscriber):
+        return self.mailing_lists.get_subscriptions(subscriber)
 

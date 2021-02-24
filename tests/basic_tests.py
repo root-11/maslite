@@ -108,6 +108,51 @@ def tests_message_exchange():
         assert True
 
 
+def test_subscribe_and_unsubscribe():
+    a, b, c, d = Agent(), Agent(), Agent(), Agent()
+
+    s = Scheduler()
+    for i in (a, b, c, d):
+        s.add(i)
+
+    a.subscribe(b.uuid, 'fish')
+    a.subscribe(c.uuid, 'fish')
+    # We do not: a.subscribe(d, 'fish')
+    a.subscribe(topic='quantum physics')
+    c.subscribe(target=a.uuid)
+
+    assert a.get_subscriptions() == {  # topic, target_set
+        None: {a.uuid},
+        'Agent': {None},
+        'fish': {b.uuid, c.uuid},
+        'quantum physics': {None}}
+
+    assert b.get_subscriptions() == {
+        None: {b.uuid},
+        'Agent': {None}
+    }
+
+    assert c.get_subscriptions() == {
+        None: {a.uuid, c.uuid},
+        'Agent': {None}
+    }
+
+    c.unsubscribe(everything=True)
+    d3 = c.get_subscriptions()
+    assert not d3  # d3 is empty.
+
+    c.subscribe(target=c.uuid)
+    assert c.get_subscriptions() == {None: {c.uuid}}
+
+    assert a.get_subscriptions() == {  # check that a's subscriptions are
+        # unaffect by c choosing to unsubscribe.
+        None: {a.uuid},
+        'Agent': {None},
+        'fish': {b.uuid, c.uuid},
+        'quantum physics': {None}
+    }
+
+
 def test_subscriptions():
     m = MailingList()
 
@@ -129,7 +174,7 @@ def test_subscriptions():
     assert m.get_subscriber_list(topic='B') == set()
 
     m.subscribe(4, 1, 'Z')
-    m.unsubscribe(4)  # mailing list doesn't care, but scehduler will complain.
+    m.unsubscribe(4, everything=True)  # mailing list doesn't care, but scehduler will complain.
 
 
 def tests_add_to_scheduler():
