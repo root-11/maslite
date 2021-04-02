@@ -279,7 +279,7 @@ An example is shown below:
 
     >>> from maslite import AgentMessage
     >>> class MyMsg(AgentMessage):
-    ...     def __init__(sender, receiver):
+    ...     def __init__(self, sender, receiver):
     ...         super().__init__(sender=sender, receiver=receiver)
     ...
     
