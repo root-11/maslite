@@ -488,7 +488,8 @@ class Clock(object):
             self.registry[alarm_message.receiver] = registry
         registry.set_alarm(wakeup_time, alarm_message)
 
-        self.clients_to_wake_up[wakeup_time].append(alarm_message.receiver)
+        if alarm_message.receiver not in self.clients_to_wake_up[wakeup_time]:
+            self.clients_to_wake_up[wakeup_time].append(alarm_message.receiver)
 
     def list_alarms(self, receiver):
         """ returns alarms set for uuid
