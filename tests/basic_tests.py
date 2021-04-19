@@ -376,14 +376,17 @@ def test_clear_alarms_by_topic():
     s.add(a)
     msg1 = TestMessage(sender=a, receiver=a, topic='1')
     msg2 = TestMessage(sender=a, receiver=a, topic='2')
+    msg3 = TestMessage(sender=a, receiver=a, topic='3')
     a.set_alarm(alarm_time=1, alarm_message=msg1, relative=True, ignore_alarm_if_idle=False)
     a.set_alarm(alarm_time=3, alarm_message=msg2, relative=True, ignore_alarm_if_idle=False)
+    a.set_alarm(alarm_time=1, alarm_message=msg3, relative=True, ignore_alarm_if_idle=False)
     assert s.clock.alarm_time == [1, 3]
-    assert s.clock.clients_to_wake_up == {1: [a.uuid], 3: [a.uuid]}
+    assert s.clock.clients_to_wake_up == {1: {a.uuid}, 3: {a.uuid}}
     a.clear_alarms(receiver=a.uuid, topic='1')
-    assert s.clock.alarm_time == [3], s.clock.alarm_time
+    assert s.clock.alarm_time == [1, 3], s.clock.alarm_time
+    a.clear_alarms(receiver=None, topic='3')
     assert s.clock.list_alarms(a.uuid) == [(3, [msg2])]
-    assert s.clock.clients_to_wake_up == {3: [a.uuid]}
+    assert s.clock.clients_to_wake_up == {3: {a.uuid}}
 
 
 def test_ping_pong_tests():
