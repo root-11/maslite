@@ -388,6 +388,30 @@ def test_clear_alarms_by_topic():
     assert s.clock.list_alarms(a.uuid) == [(3, [msg2])]
     assert s.clock.clients_to_wake_up == {3: {a.uuid}}
 
+def test_run_scheduler_until():
+    s = Scheduler(real_time=False)
+    a = TestAgent()
+    s.add(a)
+    msg1 = TestMessage(sender=a, receiver=a, topic='1')
+    msg2 = TestMessage(sender=a, receiver=a, topic='2')
+    msg3 = TestMessage(sender=a, receiver=a, topic='3')
+    a.set_alarm(alarm_time=1, alarm_message=msg1, relative=True, ignore_alarm_if_idle=False)
+    a.set_alarm(alarm_time=2, alarm_message=msg2, relative=True, ignore_alarm_if_idle=False)
+    a.set_alarm(alarm_time=3, alarm_message=msg3, relative=True, ignore_alarm_if_idle=False)
+    s.run(seconds=2)
+    assert s.clock.time == 2
+    assert s.clock.list_alarms(a.uuid) == [(3, [msg3])]
+
+    s = Scheduler(real_time=True)
+    a = TestAgent()
+    s.add(a)
+    msg1 = TestMessage(sender=a, receiver=a, topic='1')
+    start_time = time.time()
+    a.set_alarm(alarm_time=start_time + 10, alarm_message=msg1, relative=True, ignore_alarm_if_idle=False)
+    s.run(seconds=2)
+    end_time = time.time()
+    assert round(end_time - start_time, 0) == 2
+
 
 def test_ping_pong_tests():
     s = Scheduler()
