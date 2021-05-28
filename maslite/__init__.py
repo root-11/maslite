@@ -767,7 +767,8 @@ class Scheduler(object):
     def run(self, seconds=None, iterations=None, pause_if_idle=True, clear_alarms_at_end=True):
         """ The main 'run' operation of the Scheduler.
 
-        :param seconds: float, int, None: optional number of real-time seconds to run.
+        :param seconds: float, int, None: optional number of seconds to run. This is either real-time or simulation-time
+        seconds depending on which type of clock is being used.
         :param iterations: float, int, None: feature to let the scheduler run for
         N (`iterations`) updates before pausing.
         :param pause_if_idle: boolean: default=False: If no new messages are exchanged
@@ -781,7 +782,7 @@ class Scheduler(object):
         """
         start_time = None
         if isinstance(seconds, (int, float)) and seconds > 0:
-            start_time = time.time()
+            start_time = self.clock.time
 
         iterations_to_halt = None
         if isinstance(iterations, int) and iterations > 0:
@@ -821,7 +822,7 @@ class Scheduler(object):
 
             # determine whether to stop:
             if start_time is not None:
-                if time.time() >= (start_time + seconds):
+                if self.clock.time >= (start_time + seconds):
                     self._quit = True
 
             if iterations_to_halt is not None:
