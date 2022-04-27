@@ -9,3 +9,5 @@
 dist/*
 MASlite.egg-info/*
 
+# dev
+*.code-workspace
