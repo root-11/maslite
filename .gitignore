@@ -3,7 +3,7 @@
 *.tar.gz
 
 # testing
-.pytest/*
+.pytest*
 
 # packaging
 dist/*
