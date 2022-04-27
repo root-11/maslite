@@ -1,6 +1,5 @@
 from pathlib import Path
 from datetime import datetime
-import subprocess
 import hashlib
 
 
@@ -58,12 +57,4 @@ else:  # make a new setup.py.
     script = "".join(old_setup)
     with open(str(setup), mode='w', encoding='utf-8') as f:
         f.write(script)
-
-    response = subprocess.Popen(["python", "setup.py", "sdist"], stdout=subprocess.PIPE)
-    response.wait()
-    return_code = response.returncode
-    if return_code != 0:
-        print(response.stdout.read().decode())
-    else:
-        print("new setup.py created with build_tag {}".format(current_build_tag))
-        print(r"next: run: twine upload dist\maslite-{}.tar.gz".format(version[1:-1]))
+    
