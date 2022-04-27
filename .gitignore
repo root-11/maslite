@@ -1,0 +1,11 @@
+# binaries
+*.pyc
+*.tar.gz
+
+# testing
+.pytest/*
+
+# packaging
+dist/*
+MASlite.egg-info/*
+
