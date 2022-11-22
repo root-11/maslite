@@ -11,9 +11,11 @@ jobs:
         with:
           fetch-depth: 0
       - name: install python
-      - run: python3 -m pip install --upgrade build 
+        run: |
+          python3 -m pip install --upgrade build 
       - name: build wheel
-      - run: python3 -m build --wheel
+        run: |
+          python3 -m build --wheel
       - name: Publish package
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
