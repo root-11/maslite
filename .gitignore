@@ -11,3 +11,4 @@ MASlite.egg-info/*
 
 # dev
 *.code-workspace
+*.vscode
