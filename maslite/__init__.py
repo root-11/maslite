@@ -897,7 +897,7 @@ class Scheduler(object):
         elif target is not None:
             self.log(level=DEBUG, msg=f"{subscriber} subscribing to {target} on all topics.")
         elif topic is not None:
-            self.log(level=DEBUG, msg=f"{subscriber} subscribing to topics for all agents.")
+            self.log(level=DEBUG, msg=f"{subscriber} subscribing to {topic} for all agents.")
         else:
             raise ValueError(f"no target and no topic.")
         self.mailing_lists.subscribe(subscriber=subscriber, topic=topic, target=target)
