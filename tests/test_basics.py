@@ -8,7 +8,7 @@ LOG_LEVEL = logging.INFO
 SKIP_CLOCK_TESTS = True
 
 
-class TestAgent(Agent):
+class TrialAgent(Agent):
     def __init__(self):
         super().__init__()
         self.count_updates = 0
@@ -28,19 +28,19 @@ class TestAgent(Agent):
         self.count_teardowns += 1
 
 
-class TestMessage(AgentMessage):
+class TrialMessage(AgentMessage):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
     def copy(self):
-        return TestMessage(self.sender, self.receiver)
+        return TrialMessage(self.sender, self.receiver)
 
 
 def test_message():
-    msg = TestMessage(1)
+    msg = TrialMessage(1)
     assert msg.sender == 1
     assert msg.receiver is None
-    assert msg.topic is TestMessage.__name__
+    assert msg.topic is TrialMessage.__name__
 
     msg.sender = 1  # test setattr
     msg.receiver = 2  # test setattr
@@ -185,7 +185,7 @@ def tests_add_to_scheduler():
     assert callable(a.teardown)
     s.remove(a)
 
-    a = TestAgent()
+    a = TrialAgent()
     s.add(a)
     assert a.count_setups == 1
     assert a.get_subscription_topics() == s.get_subscription_topics(), "these should be the same"
@@ -200,7 +200,7 @@ def tests_add_to_scheduler():
     assert a.__class__.__name__ in a.get_subscription_topics()
 
     assert a.messages is False
-    m = TestMessage(sender=a, receiver=a)
+    m = TrialMessage(sender=a, receiver=a)
     assert m.sender == a.uuid
     assert m.receiver == a.uuid
     a.send(m)
@@ -215,7 +215,7 @@ def tests_add_to_scheduler():
     assert a.messages is False
     s.run()
     start = time.time()
-    alarm_mesage = TestMessage(a, a)
+    alarm_mesage = TrialMessage(a, a)
     a.set_alarm(alarm_time=1000000000, alarm_message=alarm_mesage)
     s.run()
     end = time.time()
@@ -239,7 +239,7 @@ def tests_add_to_scheduler():
 
     s.add(a)
     assert a.count_setups == 2
-    b = TestAgent()
+    b = TrialAgent()
     a.add(b)
     assert b.uuid in s.agents
     assert b.uuid in a.get_subscription_topics()
@@ -258,7 +258,7 @@ def tests_add_to_scheduler():
     s.run()
     assert len(s.needs_update) == 0
 
-    m4 = TestMessage(sender=a, receiver=b)
+    m4 = TrialMessage(sender=a, receiver=b)
     a.send(m4)
     s.run(iterations=1)
     assert m4 in b.inbox
@@ -268,7 +268,7 @@ def tests_add_to_scheduler():
     end = time.time()
     assert 0.295 < end - start < 0.315, end - start
 
-    alarm_msg = TestMessage(sender=a, receiver=a, topic="Alarm!!!")
+    alarm_msg = TrialMessage(sender=a, receiver=a, topic="Alarm!!!")
 
     a.set_alarm(alarm_time=1, alarm_message=alarm_msg, relative=True, ignore_alarm_if_idle=False)
     assert len(s.clock.alarm_time) == 1
@@ -281,7 +281,7 @@ def tests_add_to_scheduler():
     assert alarm_msg.topic == alarm.topic
 
     random_id = 2134565432
-    m6 = TestMessage(sender=a, receiver=random_id)
+    m6 = TrialMessage(sender=a, receiver=random_id)
     a.send(m6)
     assert random_id not in s.agents
 
@@ -349,13 +349,13 @@ class PingPongPlayer(Agent):
 
 def test_clear_alarms():
     s = Scheduler(real_time=False)
-    a = TestAgent()
-    b = TestAgent()
+    a = TrialAgent()
+    b = TrialAgent()
     s.add(a)
     s.add(b)
     # set alarms for a and b, then clear them
-    alarm_msg = TestMessage(sender=a, receiver=a, topic="Alarm_b")
-    alarm_msg_b = TestMessage(sender=b, receiver=b, topic="Alarm_b")
+    alarm_msg = TrialMessage(sender=a, receiver=a, topic="Alarm_b")
+    alarm_msg_b = TrialMessage(sender=b, receiver=b, topic="Alarm_b")
     a.set_alarm(alarm_time=1, alarm_message=alarm_msg, relative=True, ignore_alarm_if_idle=False)  # set for a by a
     a.set_alarm(alarm_time=1, alarm_message=alarm_msg_b, relative=True, ignore_alarm_if_idle=False)  # set for b by a
     b.set_alarm(alarm_time=2, alarm_message=alarm_msg_b, relative=True, ignore_alarm_if_idle=False)  # set for b by b
@@ -372,11 +372,11 @@ def test_clear_alarms():
 
 def test_clear_alarms_by_topic():
     s = Scheduler(real_time=False)
-    a = TestAgent()
+    a = TrialAgent()
     s.add(a)
-    msg1 = TestMessage(sender=a, receiver=a, topic='1')
-    msg2 = TestMessage(sender=a, receiver=a, topic='2')
-    msg3 = TestMessage(sender=a, receiver=a, topic='3')
+    msg1 = TrialMessage(sender=a, receiver=a, topic='1')
+    msg2 = TrialMessage(sender=a, receiver=a, topic='2')
+    msg3 = TrialMessage(sender=a, receiver=a, topic='3')
     a.set_alarm(alarm_time=1, alarm_message=msg1, relative=True, ignore_alarm_if_idle=False)
     a.set_alarm(alarm_time=3, alarm_message=msg2, relative=True, ignore_alarm_if_idle=False)
     a.set_alarm(alarm_time=1, alarm_message=msg3, relative=True, ignore_alarm_if_idle=False)
@@ -390,11 +390,11 @@ def test_clear_alarms_by_topic():
 
 def test_run_scheduler_until():
     s = Scheduler(real_time=False)
-    a = TestAgent()
+    a = TrialAgent()
     s.add(a)
-    msg1 = TestMessage(sender=a, receiver=a, topic='1')
-    msg2 = TestMessage(sender=a, receiver=a, topic='2')
-    msg3 = TestMessage(sender=a, receiver=a, topic='3')
+    msg1 = TrialMessage(sender=a, receiver=a, topic='1')
+    msg2 = TrialMessage(sender=a, receiver=a, topic='2')
+    msg3 = TrialMessage(sender=a, receiver=a, topic='3')
     a.set_alarm(alarm_time=1, alarm_message=msg1, relative=True, ignore_alarm_if_idle=False)
     a.set_alarm(alarm_time=2, alarm_message=msg2, relative=True, ignore_alarm_if_idle=False)
     a.set_alarm(alarm_time=3, alarm_message=msg3, relative=True, ignore_alarm_if_idle=False)
@@ -403,9 +403,9 @@ def test_run_scheduler_until():
     assert s.clock.list_alarms(a.uuid) == [(3, [msg3])]
 
     s = Scheduler(real_time=True)
-    a = TestAgent()
+    a = TrialAgent()
     s.add(a)
-    msg1 = TestMessage(sender=a, receiver=a, topic='1')
+    msg1 = TrialMessage(sender=a, receiver=a, topic='1')
     start_time = time.time()
     a.set_alarm(alarm_time=start_time + 10, alarm_message=msg1, relative=True, ignore_alarm_if_idle=False)
     s.run(seconds=2)

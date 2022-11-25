@@ -1,8 +1,8 @@
-[![Build Status](https://travis-ci.com/root-11/maslite.svg?branch=master)](https://travis-ci.com/root-11/maslite)
+[![Python package](https://github.com/root-11/maslite/actions/workflows/python-test.yml/badge.svg)](https://github.com/root-11/maslite/actions/workflows/python-app.yml)
 [![Code coverage](https://codecov.io/gh/root-11/maslite/branch/master/graph/badge.svg)](https://codecov.io/gh/root-11/maslite)
 [![Downloads](https://pepy.tech/badge/maslite)](https://pepy.tech/project/maslite)
 [![Downloads](https://pepy.tech/badge/maslite/month)](https://pepy.tech/project/maslite/month)
-
+[![PyPI version](https://badge.fury.io/py/maslite.svg)](https://badge.fury.io/py/maslite)
 
 # MASlite
 A multi-agent platform contrived by [Bjorn Madsen](https://uk.linkedin.com/in/bmadsen)
