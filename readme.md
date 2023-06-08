@@ -7,6 +7,8 @@
 # MASlite
 A multi-agent platform contrived by [Bjorn Madsen](https://uk.linkedin.com/in/bmadsen)
 
+For a comprehensive tutorial by Max Yu, go here: [Tutorial.ipynb](https://github.com/root-11/maslite/blob/master/tutorial/tutorial.ipynb)
+
 All right reserved &copy; 2016-2021. MIT-license. 
 All code has been written by the author in isolation and any similarity 
 to other systems is purely coincidental. 
