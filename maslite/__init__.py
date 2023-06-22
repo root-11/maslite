@@ -3,6 +3,7 @@ import logging
 from collections import deque, defaultdict
 from itertools import count
 from bisect import insort
+from math import inf
 
 CRITICAL = logging.CRITICAL
 FATAL = CRITICAL
@@ -444,7 +445,7 @@ class Clock(object):
     def __str__(self):
         return f"{self.__class__.__name__}: {self.time} {len(self.alarm_time)} alarms pending"
 
-    def tick(self):
+    def tick(self, limit=None):
         """ progresses time by one tick."""
         raise NotImplementedError("sub classes implement this so that _time is updated.")
 
@@ -528,7 +529,7 @@ class RealTimeClock(Clock):
         super().__init__(scheduler_api)
         self._time = time.time()
 
-    def tick(self):
+    def tick(self, limit=None):
         self._time = time.time()
 
 
@@ -537,13 +538,18 @@ class SimulationClock(Clock):
         super().__init__(scheduler_api)
         self._time = 0
 
-    def tick(self):
+    def tick(self, limit=None):
+        """
+        :param limit: time to which the clock can tick
+        """
         if self.scheduler_api.mail_queue:
             pass  # don't progress time, there are new messages to handle
         elif self.scheduler_api.needs_update:
             pass  # don't progress time, agents are updating.
         elif self.alarm_time:  # jump in time to the next alarm.
-            self._time = min(self.alarm_time)
+            if not limit:
+                limit = inf
+            self._time = min(min(self.alarm_time), limit)
         else:
             pass
         return
@@ -812,7 +818,7 @@ class Scheduler(object):
             self.needs_update.clear()
 
             # check any timed alarms.
-            self.clock.tick()
+            self.clock.tick(limit=seconds)
             self.clock.release_alarm_messages()
 
             # distribute messages or sleep.
