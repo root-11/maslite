@@ -396,7 +396,20 @@ def test_run_scheduler_until():
     msg2 = TrialMessage(sender=a, receiver=a, topic='2')
     msg3 = TrialMessage(sender=a, receiver=a, topic='3')
     a.set_alarm(alarm_time=1, alarm_message=msg1, relative=True, ignore_alarm_if_idle=False)
-    a.set_alarm(alarm_time=2, alarm_message=msg2, relative=True, ignore_alarm_if_idle=False)
+    a.set_alarm(alarm_time=1.5, alarm_message=msg2, relative=True, ignore_alarm_if_idle=False)
+    a.set_alarm(alarm_time=3, alarm_message=msg3, relative=True, ignore_alarm_if_idle=False)
+    s.run()
+    assert s.clock.time == 3
+    assert not s.clock.list_alarms(a.uuid)
+
+    s = Scheduler(real_time=False)
+    a = TrialAgent()
+    s.add(a)
+    msg1 = TrialMessage(sender=a, receiver=a, topic='1')
+    msg2 = TrialMessage(sender=a, receiver=a, topic='2')
+    msg3 = TrialMessage(sender=a, receiver=a, topic='3')
+    a.set_alarm(alarm_time=1, alarm_message=msg1, relative=True, ignore_alarm_if_idle=False)
+    a.set_alarm(alarm_time=1.5, alarm_message=msg2, relative=True, ignore_alarm_if_idle=False)
     a.set_alarm(alarm_time=3, alarm_message=msg3, relative=True, ignore_alarm_if_idle=False)
     s.run(seconds=2)
     assert s.clock.time == 2
