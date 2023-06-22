@@ -389,6 +389,7 @@ def test_clear_alarms_by_topic():
     assert s.clock.clients_to_wake_up == {3: {a.uuid}}
 
 def test_run_scheduler_until():
+    # first run on SimulationClock with no limit
     s = Scheduler(real_time=False)
     a = TrialAgent()
     s.add(a)
@@ -402,6 +403,7 @@ def test_run_scheduler_until():
     assert s.clock.time == 3
     assert not s.clock.list_alarms(a.uuid)
 
+    # second run on simulation clock until 2 seconds (missing the alarm at 3 seconds)
     s = Scheduler(real_time=False)
     a = TrialAgent()
     s.add(a)
@@ -415,6 +417,7 @@ def test_run_scheduler_until():
     assert s.clock.time == 2
     assert s.clock.list_alarms(a.uuid) == [(3, [msg3])]
 
+    # third, run on real time clock
     s = Scheduler(real_time=True)
     a = TrialAgent()
     s.add(a)
