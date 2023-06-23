@@ -790,6 +790,9 @@ class Scheduler(object):
         if isinstance(seconds, (int, float)) and seconds > 0:
             start_time = self.clock.time
 
+        if seconds:
+            seconds += start_time
+
         iterations_to_halt = None
         if isinstance(iterations, int) and iterations > 0:
             iterations_to_halt = abs(iterations)
@@ -828,7 +831,7 @@ class Scheduler(object):
 
             # determine whether to stop:
             if start_time is not None:
-                if self.clock.time >= (start_time + seconds):
+                if self.clock.time >= seconds:
                     self._quit = True
 
             if iterations_to_halt is not None:
