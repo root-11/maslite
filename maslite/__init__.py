@@ -480,7 +480,7 @@ class Clock(object):
         if ignore_alarm_if_idle is False:
             self.last_required_alarm = max(self.last_required_alarm, wakeup_time)
 
-        if wakeup_time not in self.alarm_time:
+        if wakeup_time not in self.clients_to_wake_up:
             insort(self.alarm_time, wakeup_time)  # smallest first!
 
         registry = self.registry.get(alarm_message.receiver, None)
