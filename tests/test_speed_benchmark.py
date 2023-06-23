@@ -1,8 +1,10 @@
-from maslite import Agent, AgentMessage, Scheduler, Clock, AlarmRegistry
 import random
 import time
 import heapq
 from math import inf
+import logging
+
+from maslite import Agent, AgentMessage, Scheduler, Clock, AlarmRegistry
 
 
 class TestMessage(AgentMessage):
@@ -117,40 +119,58 @@ class TestScheduler(Scheduler):
 
 
 def test_speed_benchmark(random_seed=20, number_of_agents=100, number_of_iterations=700):
-    # set up experiment 1
-    random.seed(random_seed)
-    agents = [TestAgent(i) for i in range(1, number_of_agents + 1)]  # let us create 5 agents
-    scheduler = Scheduler(real_time=False)  # remember the real_time !
-    for agent in agents:
-        scheduler.add(agent)
-    agents[0].send(TestMessage(1, 1, 0, 0))  # let us prime agent A with a test message
-    start = time.time()
-    scheduler.run(iterations=number_of_iterations)
-    end = time.time()
-    cpu_time_exp_1 = end - start
-    total_number_of_alarms_exp_1 = TestAgent.total_number_of_alarms_set
-    # reset
-    random.seed(random_seed)
-    TestAgent.agents = []
-    TestAgent.total_number_of_alarms_set = 0
-    # set up experiment 2
-    agents = [TestAgent(i) for i in range(1, number_of_agents + 1)]  # let us create 5 agents
-    scheduler = TestScheduler(real_time=False)  # remember the real_time !
-    for agent in agents:
-        scheduler.add(agent)
-    agents[0].send(TestMessage(1, 1, 0, 0))  # let us prime agent A with a test message
-    start = time.time()
-    scheduler.run(iterations=number_of_iterations)
-    end = time.time()
-    cpu_time_exp_2 = end - start
-    total_number_of_alarms_exp_2 = TestAgent.total_number_of_alarms_set
+    def get_agents(t_index):
+        random.seed(t_index)
+        TestAgent.agents = []
+        TestAgent.total_number_of_alarms_set = 0
+        return [TestAgent(i) for i in range(1, number_of_agents + 1)]
 
-    assert total_number_of_alarms_exp_2 == total_number_of_alarms_exp_1, 'Must be an apple to apple comparison'
-    print(f'Experiment Parameters: random seed {random_seed}, \nTotal Number of Agents: {number_of_agents}, \n'
-          f'Total Number of Iterations: {number_of_iterations}, \nTotal Number of Alarms: {total_number_of_alarms_exp_1}')
-    print(f'total cpu run time for scheduler using list and insort: {cpu_time_exp_1}')
-    print(f'total cpu run time for scheduler using heap: {cpu_time_exp_2}')
-    if cpu_time_exp_2 > cpu_time_exp_1:
-        print(f'scheduler using heap is {100 * round(cpu_time_exp_2/cpu_time_exp_1 - 1, 4)}% slower')
-    else:
-        print(f'scheduler using heap is {100 * round(1 - cpu_time_exp_2/cpu_time_exp_1, 4)}% faster')
+    logger = logging.getLogger()
+    logger.setLevel(logging.ERROR)
+    logger.propagate = False
+    if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+        handler = logging.StreamHandler()
+        handler.setLevel(logging.ERROR)
+        logger.addHandler(handler)
+
+    test_results = {}
+    for test_index in range(20):
+        # set up experiment 1
+        agents = get_agents(t_index=test_index)
+
+        scheduler = Scheduler(logger=logger, real_time=False)  # remember the real_time !
+        for agent in agents:
+            scheduler.add(agent)
+        agents[0].send(TestMessage(1, 1, 0, 0))  # let us prime agent A with a test message
+        start = time.time()
+        scheduler.run(iterations=number_of_iterations)
+        end = time.time()
+        cpu_time_exp_1 = end - start
+        total_number_of_alarms_exp_1 = TestAgent.total_number_of_alarms_set
+
+        # set up experiment 2
+        agents = get_agents(t_index=test_index)
+        scheduler = TestScheduler(logger=logger, real_time=False)  # remember the real_time !
+        for agent in agents:
+            scheduler.add(agent)
+        agents[0].send(TestMessage(1, 1, 0, 0))  # let us prime agent A with a test message
+        start = time.time()
+        scheduler.run(iterations=number_of_iterations)
+        end = time.time()
+        cpu_time_exp_2 = end - start
+        total_number_of_alarms_exp_2 = TestAgent.total_number_of_alarms_set
+
+        assert total_number_of_alarms_exp_2 == total_number_of_alarms_exp_1, 'Must be an apple to apple comparison'
+
+        if cpu_time_exp_1 == 0:
+            assessment = 'insufficient test run time'
+        elif cpu_time_exp_2 > cpu_time_exp_1:
+            assessment = f'scheduler using heap is {round(100 *(cpu_time_exp_2/cpu_time_exp_1 - 1), 4)}% slower'
+        else:
+            assessment = f'scheduler using heap is {round(100 * (1 - cpu_time_exp_2/cpu_time_exp_1), 4)}% faster'
+
+        test_results[test_index] = (f'total cpu run time for scheduler using list and insort: {round(cpu_time_exp_1, 2)}',
+                                    f'total cpu run time for scheduler using heap: {round(cpu_time_exp_2, 2)}',
+                                    assessment)
+
+    print(test_results)
