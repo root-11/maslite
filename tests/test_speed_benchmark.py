@@ -3,8 +3,11 @@ import time
 import heapq
 from math import inf
 import logging
-
+from collections import deque
+from bisect import insort
 from maslite import Agent, AgentMessage, Scheduler, Clock, AlarmRegistry
+from pathlib import Path
+import tempfile
 
 
 class TestMessage(AgentMessage):
@@ -50,7 +53,7 @@ class TestAgent(Agent):
             TestAgent.total_number_of_alarms_set += 1
 
 
-class TestSimulationClock(Clock):
+class TestSimulationClock1(Clock):
 
     def __init__(self, scheduler_api):
         super().__init__(scheduler_api)
@@ -111,14 +114,83 @@ class TestSimulationClock(Clock):
         return
 
 
-class TestScheduler(Scheduler):
+class TestScheduler1(Scheduler):
 
     def __init__(self, logger=None, real_time=True):
         super().__init__(logger=None, real_time=True)
-        self.clock = TestSimulationClock(scheduler_api=self)
+        self.clock = TestSimulationClock1(scheduler_api=self)
 
 
-def test_speed_benchmark(random_seed=20, number_of_agents=100, number_of_iterations=500):
+class TestSimulationClock2(Clock):
+
+    def __init__(self, scheduler_api):
+        super().__init__(scheduler_api)
+        self._time = 0
+        self.alarm_time = deque()
+
+    def release_alarm_messages(self):
+        if self.alarm_time:
+            timestamp = self.alarm_time.popleft()
+            list_of_messages = []
+            clients = self.clients_to_wake_up[timestamp]
+            for client in clients:
+                registry = self.registry[client]
+                assert isinstance(registry, AlarmRegistry)
+                list_of_messages.extend(registry.release_alarm(timestamp))
+
+            self.scheduler_api.mail_queue.extend(list_of_messages)
+            self.clients_to_wake_up.pop(timestamp, None)
+
+    def set_alarm(self, delay, alarm_message, ignore_alarm_if_idle):
+        """
+        :param delay: time delay from Agent.time until wakeup.
+        :param alarm_message: AgentMessage
+        :param ignore_alarm_if_idle: boolean - scheduler will ignore alarm if no messages
+        are exchanged.
+        """
+        assert isinstance(delay, (int, float))
+        assert isinstance(alarm_message, AgentMessage)
+        assert isinstance(ignore_alarm_if_idle, bool)
+        wakeup_time = self.time + delay
+        if ignore_alarm_if_idle is False:
+            self.last_required_alarm = max(self.last_required_alarm, wakeup_time)
+
+        if wakeup_time not in self.clients_to_wake_up:
+            insort(self.alarm_time, wakeup_time)  # smallest first!
+
+        registry = self.registry.get(alarm_message.receiver, None)
+        if registry is None:
+            registry = AlarmRegistry(alarm_message.receiver)
+            self.registry[alarm_message.receiver] = registry
+        registry.set_alarm(wakeup_time, alarm_message)
+
+        self.clients_to_wake_up[wakeup_time].add(alarm_message.receiver)
+
+    def tick(self, limit=None):
+        """
+        :param limit: time to which the clock can tick
+        """
+        if self.scheduler_api.mail_queue:
+            pass  # don't progress time, there are new messages to handle
+        elif self.scheduler_api.needs_update:
+            pass  # don't progress time, agents are updating.
+        elif self.alarm_time:  # jump in time to the next alarm.
+            if not limit:
+                limit = inf
+            self._time = min(self.alarm_time[0], limit)
+        else:
+            pass
+        return
+
+
+class TestScheduler2(Scheduler):
+
+    def __init__(self, logger=None, real_time=True):
+        super().__init__(logger=None, real_time=True)
+        self.clock = TestSimulationClock2(scheduler_api=self)
+
+
+def test_speed_benchmark(number_of_test_cases=5, number_of_agents=100, number_of_iterations=500):
     def get_agents(t_index):
         random.seed(t_index)
         TestAgent.agents = []
@@ -133,8 +205,8 @@ def test_speed_benchmark(random_seed=20, number_of_agents=100, number_of_iterati
         handler.setLevel(logging.ERROR)
         logger.addHandler(handler)
 
-    test_results = {}
-    for test_index in range(30):
+    test_results = []
+    for test_index in range(number_of_test_cases):
         # set up experiment 1
         agents = get_agents(t_index=test_index)
 
@@ -150,7 +222,7 @@ def test_speed_benchmark(random_seed=20, number_of_agents=100, number_of_iterati
 
         # set up experiment 2
         agents = get_agents(t_index=test_index)
-        scheduler = TestScheduler(logger=logger, real_time=False)  # remember the real_time !
+        scheduler = TestScheduler1(logger=logger, real_time=False)  # remember the real_time !
         for agent in agents:
             scheduler.add(agent)
         agents[0].send(TestMessage(1, 1, 0, 0))  # let us prime agent A with a test message
@@ -160,17 +232,32 @@ def test_speed_benchmark(random_seed=20, number_of_agents=100, number_of_iterati
         cpu_time_exp_2 = end - start
         total_number_of_alarms_exp_2 = TestAgent.total_number_of_alarms_set
 
-        assert total_number_of_alarms_exp_2 == total_number_of_alarms_exp_1, 'Must be an apple to apple comparison'
+        # set up experiment 3
+        agents = get_agents(t_index=test_index)
+        scheduler = TestScheduler2(logger=logger, real_time=False)  # remember the real_time !
+        for agent in agents:
+            scheduler.add(agent)
+        agents[0].send(TestMessage(1, 1, 0, 0))  # let us prime agent A with a test message
+        start = time.time()
+        scheduler.run(iterations=number_of_iterations)
+        end = time.time()
+        cpu_time_exp_3 = end - start
+        total_number_of_alarms_exp_3 = TestAgent.total_number_of_alarms_set
 
-        if cpu_time_exp_1 == 0:
-            assessment = 'insufficient test run time'
-        elif cpu_time_exp_2 > cpu_time_exp_1:
-            assessment = f'scheduler using heap is {round(100 *(cpu_time_exp_2/cpu_time_exp_1 - 1), 4)}% slower'
-        else:
-            assessment = f'scheduler using heap is {round(100 * (1 - cpu_time_exp_2/cpu_time_exp_1), 4)}% faster'
+        assert total_number_of_alarms_exp_1 == total_number_of_alarms_exp_2 == total_number_of_alarms_exp_3, \
+            'Must be an apple to apple comparison'
+        test_results.append(f'{test_index},{number_of_agents},{number_of_iterations},'
+                            f'{total_number_of_alarms_exp_1},{cpu_time_exp_1},{cpu_time_exp_2},{cpu_time_exp_3}')
 
-        test_results[test_index] = (f'total cpu run time for scheduler using list and insort: {round(cpu_time_exp_1, 2)}',
-                                    f'total cpu run time for scheduler using heap: {round(cpu_time_exp_2, 2)}',
-                                    assessment)
+    DIRECTORY = Path(tempfile.gettempdir()) / "speed_benchmark_test_result"
+    if not DIRECTORY.exists():
+        DIRECTORY.mkdir()
+    file = DIRECTORY/"speed_benchmark.txt"
+    if not file.exists():
+        with open(file, 'w') as output:
+            output.write('test_idx,num_of_agents,num_of_iterations,num_of_alarms_set,'
+            'cpu_run_time_list_insort,cpu_run_time_heap,cpu_run_time_deque_insort' + '\n')
 
-    print(test_results)
+    with open(file, 'a') as output:
+        for row in test_results:
+            output.write(str(row) + '\n')
