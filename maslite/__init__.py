@@ -548,8 +548,9 @@ class SimulationClock(Clock):
             pass  # don't progress time, agents are updating.
         elif self.alarm_time:  # jump in time to the next alarm.
             if not limit:
-                limit = inf
-            self._time = min(min(self.alarm_time), limit)
+                self._time = self.alarm_time[0]
+            else:
+                self._time = min(self.alarm_time[0], limit)
         else:
             pass
         return
