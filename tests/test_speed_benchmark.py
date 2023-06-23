@@ -41,7 +41,7 @@ class TestAgent(Agent):
     def receive_test_message(self, msg):
 
         # print(TestAgent.number_of_updates)
-        number_of_alarms = random.randint(0, 5)  # randomly decide how many alarm message to send, maximum 3, minimum 0
+        number_of_alarms = random.randint(1, 5)  # randomly decide how many alarm message to send, maximum 5, minimum 1
         for _ in range(number_of_alarms):
             agent_to_receive_alarm = TestAgent.agents[random.randint(0, len(TestAgent.agents) - 1)]
             alarm_time = random.randint(0, 100)  # randomly decide what the alarm time should be
@@ -118,7 +118,7 @@ class TestScheduler(Scheduler):
         self.clock = TestSimulationClock(scheduler_api=self)
 
 
-def test_speed_benchmark(random_seed=20, number_of_agents=100, number_of_iterations=700):
+def test_speed_benchmark(random_seed=20, number_of_agents=100, number_of_iterations=500):
     def get_agents(t_index):
         random.seed(t_index)
         TestAgent.agents = []
@@ -134,7 +134,7 @@ def test_speed_benchmark(random_seed=20, number_of_agents=100, number_of_iterati
         logger.addHandler(handler)
 
     test_results = {}
-    for test_index in range(20):
+    for test_index in range(30):
         # set up experiment 1
         agents = get_agents(t_index=test_index)
 
