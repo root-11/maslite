@@ -388,6 +388,7 @@ def test_clear_alarms_by_topic():
     assert s.clock.list_alarms(a.uuid) == [(3, [msg2])]
     assert s.clock.clients_to_wake_up == {3: {a.uuid}}
 
+
 def test_run_scheduler_until():
     # first run on SimulationClock with no limit
     s = Scheduler(real_time=False)
@@ -427,6 +428,25 @@ def test_run_scheduler_until():
     s.run(seconds=2)
     end_time = time.time()
     assert round(end_time - start_time, 0) == 2
+
+
+def test_run_until_multiple_successive_runs():
+    """ Run multiple short runs, with the time continuing.
+    """
+    s = Scheduler(real_time=False)
+    a = TrialAgent()
+    s.add(a)
+    for i in range(3, 22, 3):
+        msg = TrialMessage(sender=a, receiver=a, topic=f"{i}_msg")
+        a.set_alarm(alarm_time=i, alarm_message=msg, relative=True, ignore_alarm_if_idle=False)
+
+    for i in range(2, 22, 2):
+        s.run(seconds=2, clear_alarms_at_end=False)
+        assert s.clock.time == i
+
+    s.run()
+    assert s.clock.time == 21
+
 
 
 def test_ping_pong_tests():
