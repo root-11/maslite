@@ -1,7 +1,7 @@
 from maslite import Agent, AgentMessage, Scheduler
 from collections import defaultdict
 
-__author__ = ["bjorn.madsen@operationsresearchgroup.com"]
+__author__ = ["dr.bjorn.madsen@gmail.com"]
 
 __description__ = """
     INTRODUCTION

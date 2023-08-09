@@ -1,8 +1,7 @@
 from maslite import Agent, AgentMessage
 from collections import namedtuple
 
-__description__ = """The scheduling demo presented in Bjorn Madsen's PhD thesis (https://goo.gl/YbHVzi).
-"""
+__description__ = """The scheduling demo presented in Bjorn Madsen's PhD thesis (https://oro.open.ac.uk/61375/)."""
 
 
 class Order(AgentMessage):
