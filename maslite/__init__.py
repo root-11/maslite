@@ -699,8 +699,8 @@ class Scheduler(object):
         self.mail_queue = deque()
         self.mailing_lists = MailingList()
         self.agents = dict()
-        self.needs_update = set()
-        self.has_keep_awake = set()
+        self.needs_update = dict()
+        self.has_keep_awake = dict()
         self._must_run_until_alarm_expires = False
 
         self._quit = False
@@ -740,8 +740,8 @@ class Scheduler(object):
         agent.setup()
 
         if agent.keep_awake:
-            self.has_keep_awake.add(agent.uuid)
-        self.needs_update.add(agent.uuid)
+            self.has_keep_awake[agent.uuid] = True
+        self.needs_update[agent.uuid] = True
 
     def remove(self, agent_or_uuid):
         """ Removes an agent from the scheduler
@@ -765,9 +765,9 @@ class Scheduler(object):
         self.unsubscribe(subscriber=agent.uuid, everything=True)
 
         if agent.uuid in self.needs_update:
-            self.needs_update.remove(agent.uuid)
+            del self.needs_update[agent.uuid]
         if agent.uuid in self.has_keep_awake:
-            self.has_keep_awake.remove(agent.uuid)
+            del self.has_keep_awake[agent.uuid]
         del self.agents[agent.uuid]
 
     def run(self, seconds=None, iterations=None, pause_if_idle=True, clear_alarms_at_end=True):
@@ -801,8 +801,9 @@ class Scheduler(object):
         assert isinstance(clear_alarms_at_end, bool)
 
         # check all agents for messages (in case that someone on the outside has added messages).
-        updated_agents = {agent.uuid for agent in self.agents.values() if agent.inbox or agent.keep_awake}
-        self.needs_update.update(updated_agents)
+        for agent in self.agents.values():
+            if agent.inbox or agent.keep_awake:
+                self.needs_update[agent.uuid] = True
         self.process_mail_queue()
 
         # The main loop of the scheduler:
@@ -815,9 +816,9 @@ class Scheduler(object):
                 agent = self.agents[uuid]
                 agent.update()
                 if agent.keep_awake:
-                    self.has_keep_awake.add(agent.uuid)
-                else:
-                    self.has_keep_awake.discard(agent.uuid)
+                    self.has_keep_awake[uuid]=True
+                elif uuid in self.has_keep_awake:
+                    del self.has_keep_awake[uuid]
             self.needs_update.clear()
 
             # check any timed alarms.
@@ -871,7 +872,7 @@ class Scheduler(object):
             agent = self.agents.get(uuid, None)
             if agent is None:
                 continue
-            self.needs_update.add(uuid)
+            self.needs_update[uuid] = True
             if msg.receiver == uuid:
                 agent.inbox.append(msg)  # original message
             else:
