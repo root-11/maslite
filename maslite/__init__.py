@@ -663,26 +663,27 @@ class MailingList(object):
 
     def get_mail_recipients(self, message):
         assert isinstance(message, AgentMessage)
-        recipients = set()
+        recipients = {}
 
         if message.receiver is None:  # it's a broadcast: Go to topic.
             pass
         else:  # it's a direct message.
             if None in self.directory[message.receiver]:  # the receiver exists as an agent.
                 # retrieve set of subscribers of messages send to this agent no matter the topic.
-                recipients.update(self.directory[message.receiver][None])
+                recipients.update({receiver: True for receiver in self.directory[message.receiver][None].keys()})
 
             if message.topic in self.directory[message.receiver]:  # there are subscribers who
                 # are interested only in the agent when it receives a message with a specific topic.
-                recipients.update(self.directory[message.receiver][message.topic])
+                recipients.update({receiver: True for receiver in
+                                   self.directory[message.receiver][message.topic].keys()})
 
         # Topic:
         if message.topic in self.directory:  # there are subscribers interested in this topic no
             # matter which agent is supposed to receive the message
             if None in self.directory[message.topic]:
-                recipients.update(self.directory[message.topic][None])
+                recipients.update({receiver: True for receiver in self.directory[message.topic][None].keys()})
 
-        return recipients
+        return recipients.keys()
 
 
 class Scheduler(object):
