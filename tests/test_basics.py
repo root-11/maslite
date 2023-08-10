@@ -158,23 +158,23 @@ def test_subscriptions():
 
     m.subscribe(1, 1)
     m.subscribe(1, topic="A")
-    assert m.get_subscriber_list(target=1) == {1}
-    assert m.get_subscriber_list(topic='A') == {1}
+    assert m.get_subscriber_list(target=1) == [1]
+    assert m.get_subscriber_list(topic='A') == [1]
 
     m.subscribe(2, target=1, topic='B')
-    assert m.get_subscriber_list(target=1, topic='B') == {2}
+    assert m.get_subscriber_list(target=1, topic='B') == [2]
 
-    assert m.get_subscriber_list(target=1) == {1, 2}
+    assert m.get_subscriber_list(target=1) == [1, 2]
 
     m.subscribe(3, target=1)
-    assert m.get_subscriber_list(target=1) == {1, 2, 3}
+    assert m.get_subscriber_list(target=1) == [1, 3, 2]
 
-    assert m.get_subscriber_list(topic='A') == {1}
-    assert m.get_subscriber_list(topic='C') == set()
-    assert m.get_subscriber_list(topic='B') == set()
+    assert m.get_subscriber_list(topic='A') == [1]
+    assert m.get_subscriber_list(topic='C') == []
+    assert m.get_subscriber_list(topic='B') == []
 
     m.subscribe(4, 1, 'Z')
-    m.unsubscribe(4, everything=True)  # mailing list doesn't care, but scehduler will complain.
+    m.unsubscribe(4, everything=True)  # mailing list doesn't care, but scheduler will complain.
 
 
 def tests_add_to_scheduler():
@@ -215,8 +215,8 @@ def tests_add_to_scheduler():
     assert a.messages is False
     s.run()
     start = time.time()
-    alarm_mesage = TrialMessage(a, a)
-    a.set_alarm(alarm_time=1000000000, alarm_message=alarm_mesage)
+    alarm_message = TrialMessage(a, a)
+    a.set_alarm(alarm_time=1000000000, alarm_message=alarm_message)
     s.run()
     end = time.time()
     assert end - start < 1, "scheduler didn't ignore the setting drop alarm if idle."
@@ -381,12 +381,12 @@ def test_clear_alarms_by_topic():
     a.set_alarm(alarm_time=3, alarm_message=msg2, relative=True, ignore_alarm_if_idle=False)
     a.set_alarm(alarm_time=1, alarm_message=msg3, relative=True, ignore_alarm_if_idle=False)
     assert s.clock.alarm_time == [1, 3]
-    assert s.clock.clients_to_wake_up == {1: {a.uuid}, 3: {a.uuid}}
+    assert s.clock.clients_to_wake_up == {1: {a.uuid: True}, 3: {a.uuid: True}}
     a.clear_alarms(receiver=a.uuid, topic='1')
     assert s.clock.alarm_time == [1, 3], s.clock.alarm_time
     a.clear_alarms(receiver=None, topic='3')
     assert s.clock.list_alarms(a.uuid) == [(3, [msg2])]
-    assert s.clock.clients_to_wake_up == {3: {a.uuid}}
+    assert s.clock.clients_to_wake_up == {3: {a.uuid: True}}
 
 
 def test_run_scheduler_until():
@@ -448,7 +448,6 @@ def test_run_until_multiple_successive_runs():
     assert s.clock.time == 21
 
 
-
 def test_ping_pong_tests():
     s = Scheduler()
     limit = 5000
@@ -466,5 +465,3 @@ def test_ping_pong_tests():
     assert player_b.update_count == limit
     assert player_b.outcome != "won!"
     print(mps, "messages per second")
-
-

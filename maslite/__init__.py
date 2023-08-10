@@ -435,7 +435,7 @@ class Clock(object):
         self._time = None
         self.registry = dict()
         self.alarm_time = []
-        self.clients_to_wake_up = defaultdict(set)
+        self.clients_to_wake_up = defaultdict(dict)
         self.last_required_alarm = -1
 
     @property
@@ -456,7 +456,7 @@ class Clock(object):
                 return
 
             list_of_messages = []
-            clients = self.clients_to_wake_up[timestamp]
+            clients = self.clients_to_wake_up[timestamp].keys()
             for client in clients:
                 registry = self.registry[client]
                 assert isinstance(registry, AlarmRegistry)
@@ -489,7 +489,7 @@ class Clock(object):
             self.registry[alarm_message.receiver] = registry
         registry.set_alarm(wakeup_time, alarm_message)
 
-        self.clients_to_wake_up[wakeup_time].add(alarm_message.receiver)
+        self.clients_to_wake_up[wakeup_time][alarm_message.receiver] = True
 
     def list_alarms(self, receiver):
         """ returns alarms set for uuid
@@ -514,7 +514,7 @@ class Clock(object):
             for timestamp in registry.alarms.copy():
                 registry.clear_alarms(timestamp, topic)
                 if not registry.has_alarm(timestamp):
-                    self.clients_to_wake_up[timestamp].remove(receiver)
+                    del self.clients_to_wake_up[timestamp][receiver]
 
                 if not self.clients_to_wake_up[timestamp]:
                     self.alarm_time.remove(timestamp)
@@ -586,12 +586,12 @@ class MailingList(object):
     def _add(self, a, b, c):
         """ insert helper """
         if c not in self.directory[b]:
-            self.directory[b][c] = set()
-        self.directory[b][c].add(a)
+            self.directory[b][c] = {}
+        self.directory[b][c][a] = True
 
     def _remove(self, a, b, c):
         """ cleanup helper """
-        self.directory[b][c].discard(a)
+        del self.directory[b][c][a]
         if not self.directory[b][c]:
             del self.directory[b][c]
         if not self.directory[b]:
@@ -653,36 +653,37 @@ class MailingList(object):
     def get_subscriber_list(self, target=None, topic=None):
         try:
             if target and topic:  # only retrieve subscribers of target on topic.
-                return self.directory[target][topic]
+                return list(self.directory[target][topic].keys())
             if target is not None:  # only retrieve subscribers of target ALL topics.
-                return {v for z in self.directory[target].values() for v in z}
+                return [v for z in self.directory[target].values() for v in z.keys()]
             if topic is not None:  # only retrieve subscribers of topic ALL agents.
-                return self.directory[topic][target]
+                return list(self.directory[topic][target].keys())
         except KeyError:
-            return set()
+            return []
 
     def get_mail_recipients(self, message):
         assert isinstance(message, AgentMessage)
-        recipients = set()
+        recipients = {}
 
         if message.receiver is None:  # it's a broadcast: Go to topic.
             pass
         else:  # it's a direct message.
             if None in self.directory[message.receiver]:  # the receiver exists as an agent.
                 # retrieve set of subscribers of messages send to this agent no matter the topic.
-                recipients.update(self.directory[message.receiver][None])
+                recipients.update({receiver: True for receiver in self.directory[message.receiver][None].keys()})
 
             if message.topic in self.directory[message.receiver]:  # there are subscribers who
                 # are interested only in the agent when it receives a message with a specific topic.
-                recipients.update(self.directory[message.receiver][message.topic])
+                recipients.update({receiver: True for receiver in
+                                   self.directory[message.receiver][message.topic].keys()})
 
         # Topic:
         if message.topic in self.directory:  # there are subscribers interested in this topic no
             # matter which agent is supposed to receive the message
             if None in self.directory[message.topic]:
-                recipients.update(self.directory[message.topic][None])
+                recipients.update({receiver: True for receiver in self.directory[message.topic][None].keys()})
 
-        return recipients
+        return recipients.keys()
 
 
 class Scheduler(object):
@@ -816,7 +817,7 @@ class Scheduler(object):
                 agent = self.agents[uuid]
                 agent.update()
                 if agent.keep_awake:
-                    self.has_keep_awake[uuid]=True
+                    self.has_keep_awake[uuid] = True
                 elif uuid in self.has_keep_awake:
                     del self.has_keep_awake[uuid]
             self.needs_update.clear()
@@ -936,4 +937,3 @@ class Scheduler(object):
 
     def get_subscriptions(self, subscriber):
         return self.mailing_lists.get_subscriptions(subscriber)
-
