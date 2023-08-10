@@ -435,7 +435,7 @@ class Clock(object):
         self._time = None
         self.registry = dict()
         self.alarm_time = []
-        self.clients_to_wake_up = defaultdict(set)
+        self.clients_to_wake_up = defaultdict(dict)
         self.last_required_alarm = -1
 
     @property
@@ -456,7 +456,7 @@ class Clock(object):
                 return
 
             list_of_messages = []
-            clients = self.clients_to_wake_up[timestamp]
+            clients = self.clients_to_wake_up[timestamp].keys()
             for client in clients:
                 registry = self.registry[client]
                 assert isinstance(registry, AlarmRegistry)
@@ -489,7 +489,7 @@ class Clock(object):
             self.registry[alarm_message.receiver] = registry
         registry.set_alarm(wakeup_time, alarm_message)
 
-        self.clients_to_wake_up[wakeup_time].add(alarm_message.receiver)
+        self.clients_to_wake_up[wakeup_time][alarm_message.receiver] = True
 
     def list_alarms(self, receiver):
         """ returns alarms set for uuid
@@ -514,7 +514,7 @@ class Clock(object):
             for timestamp in registry.alarms.copy():
                 registry.clear_alarms(timestamp, topic)
                 if not registry.has_alarm(timestamp):
-                    self.clients_to_wake_up[timestamp].remove(receiver)
+                    del self.clients_to_wake_up[timestamp][receiver]
 
                 if not self.clients_to_wake_up[timestamp]:
                     self.alarm_time.remove(timestamp)
