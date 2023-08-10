@@ -586,12 +586,12 @@ class MailingList(object):
     def _add(self, a, b, c):
         """ insert helper """
         if c not in self.directory[b]:
-            self.directory[b][c] = set()
-        self.directory[b][c].add(a)
+            self.directory[b][c] = {}
+        self.directory[b][c][a] = True
 
     def _remove(self, a, b, c):
         """ cleanup helper """
-        self.directory[b][c].discard(a)
+        del self.directory[b][c][a]
         if not self.directory[b][c]:
             del self.directory[b][c]
         if not self.directory[b]:
@@ -653,13 +653,13 @@ class MailingList(object):
     def get_subscriber_list(self, target=None, topic=None):
         try:
             if target and topic:  # only retrieve subscribers of target on topic.
-                return self.directory[target][topic]
+                return list(self.directory[target][topic].keys())
             if target is not None:  # only retrieve subscribers of target ALL topics.
-                return {v for z in self.directory[target].values() for v in z}
+                return [v for z in self.directory[target].values() for v in z.keys()]
             if topic is not None:  # only retrieve subscribers of topic ALL agents.
-                return self.directory[topic][target]
+                return list(self.directory[topic][target].keys())
         except KeyError:
-            return set()
+            return []
 
     def get_mail_recipients(self, message):
         assert isinstance(message, AgentMessage)

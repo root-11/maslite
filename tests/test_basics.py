@@ -158,20 +158,20 @@ def test_subscriptions():
 
     m.subscribe(1, 1)
     m.subscribe(1, topic="A")
-    assert m.get_subscriber_list(target=1) == {1}
-    assert m.get_subscriber_list(topic='A') == {1}
+    assert m.get_subscriber_list(target=1) == [1]
+    assert m.get_subscriber_list(topic='A') == [1]
 
     m.subscribe(2, target=1, topic='B')
-    assert m.get_subscriber_list(target=1, topic='B') == {2}
+    assert m.get_subscriber_list(target=1, topic='B') == [2]
 
-    assert m.get_subscriber_list(target=1) == {1, 2}
+    assert m.get_subscriber_list(target=1) == [1, 2]
 
     m.subscribe(3, target=1)
-    assert m.get_subscriber_list(target=1) == {1, 2, 3}
+    assert m.get_subscriber_list(target=1) == [1, 3, 2]
 
-    assert m.get_subscriber_list(topic='A') == {1}
-    assert m.get_subscriber_list(topic='C') == set()
-    assert m.get_subscriber_list(topic='B') == set()
+    assert m.get_subscriber_list(topic='A') == [1]
+    assert m.get_subscriber_list(topic='C') == []
+    assert m.get_subscriber_list(topic='B') == []
 
     m.subscribe(4, 1, 'Z')
     m.unsubscribe(4, everything=True)  # mailing list doesn't care, but scehduler will complain.
