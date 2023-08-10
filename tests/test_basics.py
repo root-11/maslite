@@ -174,7 +174,7 @@ def test_subscriptions():
     assert m.get_subscriber_list(topic='B') == []
 
     m.subscribe(4, 1, 'Z')
-    m.unsubscribe(4, everything=True)  # mailing list doesn't care, but scehduler will complain.
+    m.unsubscribe(4, everything=True)  # mailing list doesn't care, but scheduler will complain.
 
 
 def tests_add_to_scheduler():
@@ -215,8 +215,8 @@ def tests_add_to_scheduler():
     assert a.messages is False
     s.run()
     start = time.time()
-    alarm_mesage = TrialMessage(a, a)
-    a.set_alarm(alarm_time=1000000000, alarm_message=alarm_mesage)
+    alarm_message = TrialMessage(a, a)
+    a.set_alarm(alarm_time=1000000000, alarm_message=alarm_message)
     s.run()
     end = time.time()
     assert end - start < 1, "scheduler didn't ignore the setting drop alarm if idle."
@@ -448,7 +448,6 @@ def test_run_until_multiple_successive_runs():
     assert s.clock.time == 21
 
 
-
 def test_ping_pong_tests():
     s = Scheduler()
     limit = 5000
@@ -466,5 +465,3 @@ def test_ping_pong_tests():
     assert player_b.update_count == limit
     assert player_b.outcome != "won!"
     print(mps, "messages per second")
-
-

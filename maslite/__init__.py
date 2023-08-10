@@ -817,7 +817,7 @@ class Scheduler(object):
                 agent = self.agents[uuid]
                 agent.update()
                 if agent.keep_awake:
-                    self.has_keep_awake[uuid]=True
+                    self.has_keep_awake[uuid] = True
                 elif uuid in self.has_keep_awake:
                     del self.has_keep_awake[uuid]
             self.needs_update.clear()
@@ -937,4 +937,3 @@ class Scheduler(object):
 
     def get_subscriptions(self, subscriber):
         return self.mailing_lists.get_subscriptions(subscriber)
-
