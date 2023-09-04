@@ -102,7 +102,7 @@ def tests_message_exchange():
         assert True
 
     try:
-        a.subscribe("this")
+        a.subscribe(receiver="this")
         raise Exception("!")
     except AssertionError:
         assert True
@@ -115,66 +115,130 @@ def test_subscribe_and_unsubscribe():
     for i in (a, b, c, d):
         s.add(i)
 
-    a.subscribe(b.uuid, 'fish')
-    a.subscribe(c.uuid, 'fish')
+    a.subscribe(receiver=b.uuid, topic='fish')
+    a.subscribe(receiver=c.uuid, topic='fish')
     # We do not: a.subscribe(d, 'fish')
     a.subscribe(topic='quantum physics')
     c.subscribe(receiver=a.uuid)
 
-    assert a.get_subscriptions() == {  # topic, target_set
-        None: {a.uuid},
-        'Agent': {None},
-        'fish': {b.uuid, c.uuid},
-        'quantum physics': {None}}
+    assert a.get_subscriptions() == [(None, a.uuid, None),
+                                     (None, None, "Agent"),
+                                     (None, b.uuid, "fish"),
+                                     (None, c.uuid, "fish"),
+                                     (None, None, "quantum physics")]
 
-    assert b.get_subscriptions() == {
-        None: {b.uuid},
-        'Agent': {None}
-    }
+    assert b.get_subscriptions() == [(None, b.uuid, None),
+                                     (None, None, "Agent")]
 
-    assert c.get_subscriptions() == {
-        None: {a.uuid, c.uuid},
-        'Agent': {None}
-    }
+    assert c.get_subscriptions() == [(None, c.uuid, None),
+                                     (None, None, "Agent",),
+                                     (None, a.uuid, None)]
 
     c.unsubscribe(everything=True)
     d3 = c.get_subscriptions()
     assert not d3  # d3 is empty.
 
     c.subscribe(receiver=c.uuid)
-    assert c.get_subscriptions() == {None: {c.uuid}}
+    assert c.get_subscriptions() == [(None, c.uuid, None)]
 
-    assert a.get_subscriptions() == {  # check that a's subscriptions are
-        # unaffect by c choosing to unsubscribe.
-        None: {a.uuid},
-        'Agent': {None},
-        'fish': {b.uuid, c.uuid},
-        'quantum physics': {None}
-    }
+    assert a.get_subscriptions() == [(None, a.uuid, None),
+                                     (None, None, "Agent"),
+                                     (None, b.uuid, "fish"),
+                                     (None, c.uuid, "fish"),
+                                     (None, None, "quantum physics")]
 
 
 def test_subscriptions():
     m = MailingList()
 
-    m.subscribe(1, 1)
-    m.subscribe(1, topic="A")
+    m.subscribe(subscriber=1, receiver=1)
+    m.subscribe(subscriber=1, topic="A")
     assert m.get_subscriber_list(receiver=1) == [1]
     assert m.get_subscriber_list(topic='A') == [1]
 
-    m.subscribe(2, receiver=1, topic='B')
+    m.subscribe(subscriber=2, receiver=1, topic='B')
     assert m.get_subscriber_list(receiver=1, topic='B') == [2]
 
-    assert m.get_subscriber_list(receiver=1) == [1, 2]
+    assert m.get_subscriber_list(receiver=1) == [1]
 
-    m.subscribe(3, receiver=1)
-    assert m.get_subscriber_list(receiver=1) == [1, 3, 2]
+    m.subscribe(subscriber=3, receiver=1)
+    assert m.get_subscriber_list(receiver=1) == [1, 3]
 
     assert m.get_subscriber_list(topic='A') == [1]
     assert m.get_subscriber_list(topic='C') == []
     assert m.get_subscriber_list(topic='B') == []
 
-    m.subscribe(4, 1, 'Z')
+    m.subscribe(subscriber=4, receiver=1, topic='Z')
     m.unsubscribe(4, everything=True)  # mailing list doesn't care, but scheduler will complain.
+
+
+def test_message_and_broadcast_subscriptions():
+    """ Test a group of subscribers all subscribed in different ways to a series of messages. """
+    a, b, c, d = Agent(), Agent(), Agent(), Agent()
+
+    s = Scheduler()
+    for i in (a, b, c, d):
+        s.add(i)
+
+    msg_1 = TrialMessage(sender=a.uuid, receiver=b.uuid, topic='first_msg')
+    msg_2 = TrialMessage(sender=b.uuid, receiver=c.uuid, topic='second_msg')
+    msg_3 = TrialMessage(sender=c.uuid, receiver=d.uuid, topic='third_msg')
+    msg_4 = TrialMessage(sender=a.uuid, receiver=d.uuid, topic='fourth_msg')
+    msg_5 = TrialMessage(sender=a.uuid, topic='fifth_msg')  # a broadcast message
+
+    a.subscribe(sender=b.uuid)  # a subscribes to everything b sends
+    b.subscribe(sender=b.uuid, receiver=c.uuid)  # b subscribes to everything it sends to c
+    b.subscribe(topic='fifth_msg')  # b subscribes to all broadcasts of topic 'fifth_msg'
+    c.subscribe(sender=a.uuid, receiver=b.uuid)  # c subscribes to everything a sends to b
+    c.subscribe(receiver=d.uuid, topic='third_msg')  # c subscribes to d receiving 'third_msg'
+    d.subscribe(sender=a.uuid)  # d subscribes to everything a sends
+
+    s.mail_queue.append(msg_1)
+    s.process_mail_queue()
+    assert len(a.inbox) == 0
+    # b received the message sent to it,
+    # c received the message it was subscribed to,
+    # d received the message because it was sent by a
+    assert len(b.inbox) == len(c.inbox) == len(d.inbox) == 1
+    b.inbox.clear()
+    c.inbox.clear()
+    d.inbox.clear()
+
+    s.mail_queue.append(msg_2)
+    s.process_mail_queue()
+    # a received the message because it was sent by b,
+    # b received the message because it was sent from b to c,
+    # c received the message because it was sent to c
+    assert len(a.inbox) == len(b.inbox) == len(c.inbox) == 1
+    assert len(d.inbox) == 0
+    a.inbox.clear()
+    b.inbox.clear()
+    c.inbox.clear()
+
+    s.mail_queue.append(msg_3)
+    s.process_mail_queue()
+    assert len(a.inbox) == len(b.inbox)
+    # c received the message because it was the correct topic AND receiver,
+    # d receives the message that was sent to it
+    assert len(c.inbox) == len(d.inbox) == 1
+    c.inbox.clear()
+    d.inbox.clear()
+
+    s.mail_queue.append(msg_4)
+    s.process_mail_queue()
+    assert len(a.inbox) == len(b.inbox) == len(c.inbox) == 0
+    # d receives the message that was sent to it, NOTE THAT C DOESN'T RECEIVE THIS MESSAGE
+    assert len(d.inbox) == 1
+    d.inbox.clear()
+
+    s.mail_queue.append(msg_5)
+    s.process_mail_queue()
+    assert len(a.inbox) == len(c.inbox) == 0
+    # b receives the broadcast because it was subscribed to the topic
+    # d receives the broadcast because it was sent by a
+    assert len(b.inbox) == len(d.inbox) == 1
+    b.inbox.clear()
+    d.inbox.clear()
 
 
 def tests_add_to_scheduler():
@@ -195,7 +259,7 @@ def tests_add_to_scheduler():
     a.unsubscribe(topic=a.__class__.__name__)
     assert a.uuid in a.get_subscription_topics()
     assert a.__class__.__name__ not in a.get_subscription_topics()
-    assert a.uuid in a.get_subscriber_list(a.uuid)
+    assert a.uuid in a.get_subscriber_list(receiver=a.uuid)
     a.subscribe(topic=a.__class__.__name__)
     assert a.__class__.__name__ in a.get_subscription_topics()
 
@@ -295,7 +359,7 @@ def test_basic_message_abuse():
     c = Agent(uuid=3)
     for i in [a, b, c]:
         s.add(i)
-        i.subscribe('test')
+        i.subscribe(receiver='test')
 
 
 class PingPongBall(AgentMessage):
