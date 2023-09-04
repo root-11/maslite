@@ -576,26 +576,26 @@ class MailingList(object):
         if receiver, no topic: messages for receiver will be received.
         if topic, no receiver: message with said topic will be received.
         """
-        self._add(a=subscriber, b=receiver, c=topic)  # receiver registry:
-        self._add(a=subscriber, b=topic, c=receiver)  # topic registry
+        self._add(subscriber=subscriber, receiver=receiver, topic=topic)  # receiver registry:
+        self._add(subscriber=subscriber, receiver=topic, topic=receiver)  # topic registry
 
         if topic not in self.subscriptions[subscriber]:
             self.subscriptions[subscriber][topic] = set()
         self.subscriptions[subscriber][topic].add(receiver)
 
-    def _add(self, a, b, c):
+    def _add(self, subscriber, receiver, topic):
         """ insert helper """
-        if c not in self.directory[b]:
-            self.directory[b][c] = {}
-        self.directory[b][c][a] = True
+        if topic not in self.directory[receiver]:
+            self.directory[receiver][topic] = {}
+        self.directory[receiver][topic][subscriber] = True
 
-    def _remove(self, a, b, c):
+    def _remove(self, subscriber, receiver, topic):
         """ cleanup helper """
-        del self.directory[b][c][a]
-        if not self.directory[b][c]:
-            del self.directory[b][c]
-        if not self.directory[b]:
-            del self.directory[b]
+        del self.directory[receiver][topic][subscriber]
+        if not self.directory[receiver][topic]:
+            del self.directory[receiver][topic]
+        if not self.directory[receiver]:
+            del self.directory[receiver]
 
     def unsubscribe(self, subscriber, receiver=None, topic=None, everything=False):
         """
