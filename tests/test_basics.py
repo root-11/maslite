@@ -119,7 +119,7 @@ def test_subscribe_and_unsubscribe():
     a.subscribe(c.uuid, 'fish')
     # We do not: a.subscribe(d, 'fish')
     a.subscribe(topic='quantum physics')
-    c.subscribe(target=a.uuid)
+    c.subscribe(receiver=a.uuid)
 
     assert a.get_subscriptions() == {  # topic, target_set
         None: {a.uuid},
@@ -141,7 +141,7 @@ def test_subscribe_and_unsubscribe():
     d3 = c.get_subscriptions()
     assert not d3  # d3 is empty.
 
-    c.subscribe(target=c.uuid)
+    c.subscribe(receiver=c.uuid)
     assert c.get_subscriptions() == {None: {c.uuid}}
 
     assert a.get_subscriptions() == {  # check that a's subscriptions are
@@ -158,16 +158,16 @@ def test_subscriptions():
 
     m.subscribe(1, 1)
     m.subscribe(1, topic="A")
-    assert m.get_subscriber_list(target=1) == [1]
+    assert m.get_subscriber_list(receiver=1) == [1]
     assert m.get_subscriber_list(topic='A') == [1]
 
-    m.subscribe(2, target=1, topic='B')
-    assert m.get_subscriber_list(target=1, topic='B') == [2]
+    m.subscribe(2, receiver=1, topic='B')
+    assert m.get_subscriber_list(receiver=1, topic='B') == [2]
 
-    assert m.get_subscriber_list(target=1) == [1, 2]
+    assert m.get_subscriber_list(receiver=1) == [1, 2]
 
-    m.subscribe(3, target=1)
-    assert m.get_subscriber_list(target=1) == [1, 3, 2]
+    m.subscribe(3, receiver=1)
+    assert m.get_subscriber_list(receiver=1) == [1, 3, 2]
 
     assert m.get_subscriber_list(topic='A') == [1]
     assert m.get_subscriber_list(topic='C') == []
