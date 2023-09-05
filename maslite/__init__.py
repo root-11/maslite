@@ -635,10 +635,18 @@ class MailingList(object):
         assert isinstance(message, AgentMessage)
         recipients = {}
 
-        key_options = [message.sender, message.receiver, message.topic]
-
         # Generate all combinations
-        combinations = list(product(*[[val, None] for val in key_options]))
+        a, b, c = message.sender, message.receiver, message.topic
+
+        combinations = [
+            (a, None, None),
+            (None, b, None),
+            (None, None, c),
+            (a, b, None),
+            (a, None, c),
+            (None, b, c),
+            (a, b, c),
+        ]
 
         for key in combinations:
             if not any(key):
