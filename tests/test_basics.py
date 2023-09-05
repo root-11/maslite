@@ -174,71 +174,78 @@ def test_subscriptions():
 
 def test_message_and_broadcast_subscriptions():
     """ Test a group of subscribers all subscribed in different ways to a series of messages. """
-    a, b, c, d = Agent(), Agent(), Agent(), Agent()
+    a, b, c = Agent(), Agent(), Agent()
+    spy_a_b, spy_b_hello, spy_hello, spy_all_c = Agent(), Agent(), Agent(), Agent()
 
     s = Scheduler()
-    for i in (a, b, c, d):
+    for i in (a, b, c, spy_a_b, spy_b_hello, spy_hello, spy_all_c):
         s.add(i)
 
-    msg_1 = TrialMessage(sender=a.uuid, receiver=b.uuid, topic='first_msg')
-    msg_2 = TrialMessage(sender=b.uuid, receiver=c.uuid, topic='second_msg')
-    msg_3 = TrialMessage(sender=c.uuid, receiver=d.uuid, topic='third_msg')
-    msg_4 = TrialMessage(sender=a.uuid, receiver=d.uuid, topic='fourth_msg')
-    msg_5 = TrialMessage(sender=a.uuid, topic='fifth_msg')  # a broadcast message
+    msg_1 = TrialMessage(sender=a.uuid, receiver=b.uuid, topic='Hello')
+    msg_2 = TrialMessage(sender=b.uuid, receiver=a.uuid, topic='Hello')
+    msg_3 = TrialMessage(sender=b.uuid, receiver=c.uuid, topic='Hello')
+    msg_4 = TrialMessage(sender=c.uuid, topic='Hello')  # a broadcast message
+    msg_5 = TrialMessage(sender=a.uuid, receiver=b.uuid, topic='How are you?')  # a broadcast message
 
-    a.subscribe(sender=b.uuid)  # a subscribes to everything b sends
-    b.subscribe(sender=b.uuid, receiver=c.uuid)  # b subscribes to everything it sends to c
-    b.subscribe(topic='fifth_msg')  # b subscribes to all broadcasts of topic 'fifth_msg'
-    c.subscribe(sender=a.uuid, receiver=b.uuid)  # c subscribes to everything a sends to b
-    c.subscribe(receiver=d.uuid, topic='third_msg')  # c subscribes to d receiving 'third_msg'
-    d.subscribe(sender=a.uuid)  # d subscribes to everything a sends
+    # spies need to subscribe
+    spy_a_b.subscribe(sender=a.uuid, receiver=b.uuid)  # spy_a_b subscribes to all messages sent from a to b
+    spy_b_hello.subscribe(sender=b.uuid, topic='Hello')  # spy_b_hello subscribes to all messages sent from b with topic 'Hello'
+    spy_hello.subscribe(topic='Hello')  # spy_hello subscribes to all messages with topic 'Hello'
+    spy_all_c.subscribe(sender=c.uuid)  # spy_all_c subscribes to all messages sent to and from c
+    spy_all_c.subscribe(receiver=c.uuid)  # spy_all_c subscribes to all messages sent to and from c
 
     s.mail_queue.append(msg_1)
     s.process_mail_queue()
-    assert len(a.inbox) == 0
+    assert len(a.inbox) == len(c.inbox) == len(spy_b_hello.inbox) == 0
     # b received the message sent to it,
-    # c received the message it was subscribed to,
-    # d received the message because it was sent by a
-    assert len(b.inbox) == len(c.inbox) == len(d.inbox) == 1
+    # spy_a_b received the message because it was sent from a to b,
+    # spy_hello received the message because it was sent with the topic 'Hello'
+    assert len(b.inbox) == len(spy_a_b.inbox) == len(spy_hello.inbox) == 1
     b.inbox.clear()
-    c.inbox.clear()
-    d.inbox.clear()
+    spy_a_b.inbox.clear()
+    spy_hello.inbox.clear()
 
     s.mail_queue.append(msg_2)
     s.process_mail_queue()
-    # a received the message because it was sent by b,
-    # b received the message because it was sent from b to c,
-    # c received the message because it was sent to c
-    assert len(a.inbox) == len(b.inbox) == len(c.inbox) == 1
-    assert len(d.inbox) == 0
+    assert len(b.inbox) == len(c.inbox) == len(spy_a_b.inbox) == 0
+    # a received the message because it was sent to it,
+    # spy_b_hello received the message because it was sent from b with the topic 'Hello',
+    # spy_hello received the message because it was sent with the topic 'Hello'
+    assert len(a.inbox) == len(spy_b_hello.inbox) == len(spy_hello.inbox) == 1
     a.inbox.clear()
-    b.inbox.clear()
-    c.inbox.clear()
+    spy_b_hello.inbox.clear()
+    spy_hello.inbox.clear()
 
     s.mail_queue.append(msg_3)
     s.process_mail_queue()
-    assert len(a.inbox) == len(b.inbox)
-    # c received the message because it was the correct topic AND receiver,
-    # d receives the message that was sent to it
-    assert len(c.inbox) == len(d.inbox) == 1
+    assert len(a.inbox) == len(b.inbox) == len(spy_a_b.inbox) == 0
+    # c received the message because it was sent to it,
+    # spy_b_hello received the message because it was sent from b with the topic 'Hello',
+    # spy_hello received the message because it was sent with the topic 'Hello'
+    # spy_all_c received the message because it was sent to c
+    assert len(c.inbox) == len(spy_b_hello.inbox) == len(spy_hello.inbox) == len(spy_all_c.inbox) == 1
     c.inbox.clear()
-    d.inbox.clear()
+    spy_b_hello.inbox.clear()
+    spy_hello.inbox.clear()
+    spy_all_c.inbox.clear()
 
     s.mail_queue.append(msg_4)
     s.process_mail_queue()
-    assert len(a.inbox) == len(b.inbox) == len(c.inbox) == 0
-    # d receives the message that was sent to it, NOTE THAT C DOESN'T RECEIVE THIS MESSAGE
-    assert len(d.inbox) == 1
-    d.inbox.clear()
+    assert len(a.inbox) == len(b.inbox) == len(c.inbox) == len(spy_a_b.inbox) == len(spy_b_hello.inbox) == 0
+    # spy_hello received the broadcast because it was sent with the topic 'Hello'
+    # spy_all_c received the broadcast because it was sent from c
+    assert len(spy_hello.inbox) == len(spy_all_c.inbox) == 1
+    spy_hello.inbox.clear()
+    spy_all_c.inbox.clear()
 
     s.mail_queue.append(msg_5)
     s.process_mail_queue()
-    assert len(a.inbox) == len(c.inbox) == 0
-    # b receives the broadcast because it was subscribed to the topic
-    # d receives the broadcast because it was sent by a
-    assert len(b.inbox) == len(d.inbox) == 1
+    assert len(a.inbox) == len(c.inbox) == len(spy_b_hello.inbox) == len(spy_hello.inbox) == 0
+    # b received the message sent to it,
+    # spy_a_b received the message because it was sent from a to b,
+    assert len(b.inbox) == len(spy_a_b.inbox) == 1
     b.inbox.clear()
-    d.inbox.clear()
+    spy_a_b.inbox.clear()
 
 
 def tests_add_to_scheduler():
