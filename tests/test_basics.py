@@ -102,7 +102,7 @@ def tests_message_exchange():
         assert True
 
     try:
-        a.subscribe("this")
+        a.subscribe(receiver="this")
         raise Exception("!")
     except AssertionError:
         assert True
@@ -115,66 +115,137 @@ def test_subscribe_and_unsubscribe():
     for i in (a, b, c, d):
         s.add(i)
 
-    a.subscribe(b.uuid, 'fish')
-    a.subscribe(c.uuid, 'fish')
+    a.subscribe(receiver=b.uuid, topic='fish')
+    a.subscribe(receiver=c.uuid, topic='fish')
     # We do not: a.subscribe(d, 'fish')
     a.subscribe(topic='quantum physics')
-    c.subscribe(target=a.uuid)
+    c.subscribe(receiver=a.uuid)
 
-    assert a.get_subscriptions() == {  # topic, target_set
-        None: {a.uuid},
-        'Agent': {None},
-        'fish': {b.uuid, c.uuid},
-        'quantum physics': {None}}
+    assert a.get_subscriptions() == {None: {a.uuid: {None: True},
+                                            None: {"Agent": True,
+                                                   "quantum physics": True},
+                                            b.uuid: {"fish": True},
+                                            c.uuid: {"fish": True}}}
 
-    assert b.get_subscriptions() == {
-        None: {b.uuid},
-        'Agent': {None}
-    }
+    assert b.get_subscriptions() == {None: {b.uuid: {None: True},
+                                            None: {"Agent": True}}}
 
-    assert c.get_subscriptions() == {
-        None: {a.uuid, c.uuid},
-        'Agent': {None}
-    }
+    assert c.get_subscriptions() == {None: {c.uuid: {None: True},
+                                            None: {"Agent": True},
+                                            a.uuid: {None: True}}}
 
     c.unsubscribe(everything=True)
     d3 = c.get_subscriptions()
     assert not d3  # d3 is empty.
 
-    c.subscribe(target=c.uuid)
-    assert c.get_subscriptions() == {None: {c.uuid}}
+    c.subscribe(receiver=c.uuid)
+    assert c.get_subscriptions() == {None: {c.uuid: {None: True}}}
 
-    assert a.get_subscriptions() == {  # check that a's subscriptions are
-        # unaffect by c choosing to unsubscribe.
-        None: {a.uuid},
-        'Agent': {None},
-        'fish': {b.uuid, c.uuid},
-        'quantum physics': {None}
-    }
+    assert a.get_subscriptions() == {None: {a.uuid: {None: True},
+                                            None: {"Agent": True,
+                                                   "quantum physics": True},
+                                            b.uuid: {"fish": True},
+                                            c.uuid: {"fish": True}}}
 
 
 def test_subscriptions():
     m = MailingList()
 
-    m.subscribe(1, 1)
-    m.subscribe(1, topic="A")
-    assert m.get_subscriber_list(target=1) == [1]
+    m.subscribe(subscriber=1, receiver=1)
+    m.subscribe(subscriber=1, topic="A")
+    assert m.get_subscriber_list(receiver=1) == [1]
     assert m.get_subscriber_list(topic='A') == [1]
 
-    m.subscribe(2, target=1, topic='B')
-    assert m.get_subscriber_list(target=1, topic='B') == [2]
+    m.subscribe(subscriber=2, receiver=1, topic='B')
+    assert m.get_subscriber_list(receiver=1, topic='B') == [2]
 
-    assert m.get_subscriber_list(target=1) == [1, 2]
+    assert m.get_subscriber_list(receiver=1) == [1]
 
-    m.subscribe(3, target=1)
-    assert m.get_subscriber_list(target=1) == [1, 3, 2]
+    m.subscribe(subscriber=3, receiver=1)
+    assert m.get_subscriber_list(receiver=1) == [1, 3]
 
     assert m.get_subscriber_list(topic='A') == [1]
     assert m.get_subscriber_list(topic='C') == []
     assert m.get_subscriber_list(topic='B') == []
 
-    m.subscribe(4, 1, 'Z')
+    m.subscribe(subscriber=4, receiver=1, topic='Z')
     m.unsubscribe(4, everything=True)  # mailing list doesn't care, but scheduler will complain.
+
+
+def test_message_and_broadcast_subscriptions():
+    """ Test a group of subscribers all subscribed in different ways to a series of messages. """
+    a, b, c = Agent(), Agent(), Agent()
+    spy_a_b, spy_b_hello, spy_hello, spy_all_c = Agent(), Agent(), Agent(), Agent()
+
+    s = Scheduler()
+    for i in (a, b, c, spy_a_b, spy_b_hello, spy_hello, spy_all_c):
+        s.add(i)
+
+    msg_1 = TrialMessage(sender=a.uuid, receiver=b.uuid, topic='Hello')
+    msg_2 = TrialMessage(sender=b.uuid, receiver=a.uuid, topic='Hello')
+    msg_3 = TrialMessage(sender=b.uuid, receiver=c.uuid, topic='Hello')
+    msg_4 = TrialMessage(sender=c.uuid, topic='Hello')  # a broadcast message
+    msg_5 = TrialMessage(sender=a.uuid, receiver=b.uuid, topic='How are you?')  # a broadcast message
+
+    # spies need to subscribe
+    spy_a_b.subscribe(sender=a.uuid, receiver=b.uuid)  # spy_a_b subscribes to all messages sent from a to b
+    spy_b_hello.subscribe(sender=b.uuid, topic='Hello')  # spy_b_hello subscribes to all messages sent from b with topic 'Hello'
+    spy_hello.subscribe(topic='Hello')  # spy_hello subscribes to all messages with topic 'Hello'
+    spy_all_c.subscribe(sender=c.uuid)  # spy_all_c subscribes to all messages sent to and from c
+    spy_all_c.subscribe(receiver=c.uuid)  # spy_all_c subscribes to all messages sent to and from c
+
+    s.mail_queue.append(msg_1)
+    s.process_mail_queue()
+    assert len(a.inbox) == len(c.inbox) == len(spy_b_hello.inbox) == 0
+    # b received the message sent to it,
+    # spy_a_b received the message because it was sent from a to b,
+    # spy_hello received the message because it was sent with the topic 'Hello'
+    assert len(b.inbox) == len(spy_a_b.inbox) == len(spy_hello.inbox) == 1
+    b.inbox.clear()
+    spy_a_b.inbox.clear()
+    spy_hello.inbox.clear()
+
+    s.mail_queue.append(msg_2)
+    s.process_mail_queue()
+    assert len(b.inbox) == len(c.inbox) == len(spy_a_b.inbox) == 0
+    # a received the message because it was sent to it,
+    # spy_b_hello received the message because it was sent from b with the topic 'Hello',
+    # spy_hello received the message because it was sent with the topic 'Hello'
+    assert len(a.inbox) == len(spy_b_hello.inbox) == len(spy_hello.inbox) == 1
+    a.inbox.clear()
+    spy_b_hello.inbox.clear()
+    spy_hello.inbox.clear()
+
+    s.mail_queue.append(msg_3)
+    s.process_mail_queue()
+    assert len(a.inbox) == len(b.inbox) == len(spy_a_b.inbox) == 0
+    # c received the message because it was sent to it,
+    # spy_b_hello received the message because it was sent from b with the topic 'Hello',
+    # spy_hello received the message because it was sent with the topic 'Hello'
+    # spy_all_c received the message because it was sent to c
+    assert len(c.inbox) == len(spy_b_hello.inbox) == len(spy_hello.inbox) == len(spy_all_c.inbox) == 1
+    c.inbox.clear()
+    spy_b_hello.inbox.clear()
+    spy_hello.inbox.clear()
+    spy_all_c.inbox.clear()
+
+    s.mail_queue.append(msg_4)
+    s.process_mail_queue()
+    assert len(a.inbox) == len(b.inbox) == len(c.inbox) == len(spy_a_b.inbox) == len(spy_b_hello.inbox) == 0
+    # spy_hello received the broadcast because it was sent with the topic 'Hello'
+    # spy_all_c received the broadcast because it was sent from c
+    assert len(spy_hello.inbox) == len(spy_all_c.inbox) == 1
+    spy_hello.inbox.clear()
+    spy_all_c.inbox.clear()
+
+    s.mail_queue.append(msg_5)
+    s.process_mail_queue()
+    assert len(a.inbox) == len(c.inbox) == len(spy_b_hello.inbox) == len(spy_hello.inbox) == 0
+    # b received the message sent to it,
+    # spy_a_b received the message because it was sent from a to b,
+    assert len(b.inbox) == len(spy_a_b.inbox) == 1
+    b.inbox.clear()
+    spy_a_b.inbox.clear()
 
 
 def tests_add_to_scheduler():
@@ -195,7 +266,7 @@ def tests_add_to_scheduler():
     a.unsubscribe(topic=a.__class__.__name__)
     assert a.uuid in a.get_subscription_topics()
     assert a.__class__.__name__ not in a.get_subscription_topics()
-    assert a.uuid in a.get_subscriber_list(a.uuid)
+    assert a.uuid in a.get_subscriber_list(receiver=a.uuid)
     a.subscribe(topic=a.__class__.__name__)
     assert a.__class__.__name__ in a.get_subscription_topics()
 
@@ -295,7 +366,7 @@ def test_basic_message_abuse():
     c = Agent(uuid=3)
     for i in [a, b, c]:
         s.add(i)
-        i.subscribe('test')
+        i.subscribe(receiver='test')
 
 
 class PingPongBall(AgentMessage):

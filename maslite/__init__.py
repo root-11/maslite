@@ -566,7 +566,14 @@ class MailingList(object):
         self.subscriptions = defaultdict(dict)
 
     def topics(self):
-        return set(self.directory.keys()) - {None}
+        topics = set()
+        for sender, receiver_dict in self.directory.items():
+            topics.add(sender)
+            for receiver, topic_dict in receiver_dict.items():
+                topics.add(receiver)
+                for topic in topic_dict.keys():
+                    topics.add(topic)
+        return topics - {None}
 
     def subscribe(self, subscriber, sender=None, receiver=None, topic=None):
         """ subscribe to messages intended for other agents.
@@ -582,26 +589,48 @@ class MailingList(object):
         If receiver only: messages for receiver will be received.
         If topic only: message with said topic will be received.
         """
-        self._add(a=subscriber, b=target, c=topic)  # target registry:
-        self._add(a=subscriber, b=topic, c=target)  # topic registry
+        self._add(subscriber=subscriber, a=sender, b=receiver, c=topic)
 
-        if topic not in self.subscriptions[subscriber]:
-            self.subscriptions[subscriber][topic] = set()
-        self.subscriptions[subscriber][topic].add(target)
-
-    def _add(self, a, b, c):
+    def _add(self, subscriber, a, b, c):
         """ insert helper """
-        if c not in self.directory[b]:
-            self.directory[b][c] = {}
-        self.directory[b][c][a] = True
+        if b in self.directory[a]:
+            if c in self.directory[a][b]:
+                self.directory[a][b][c].append(subscriber)
+            else:
+                self.directory[a][b][c] = [subscriber]
+        else:
+            self.directory[a][b] = {c: [subscriber]}
 
-    def _remove(self, a, b, c):
+        if a not in self.subscriptions[subscriber]:
+            self.subscriptions[subscriber][a] = {b: {c: True}}
+        elif b not in self.subscriptions[subscriber][a]:
+            self.subscriptions[subscriber][a][b] = {c: True}
+        elif c not in self.subscriptions[subscriber][a][b]:
+            self.subscriptions[subscriber][a][b][c] = True
+
+    def _remove(self, subscriber, a, b, c):
         """ cleanup helper """
-        del self.directory[b][c][a]
-        if not self.directory[b][c]:
-            del self.directory[b][c]
-        if not self.directory[b]:
-            del self.directory[b]
+        try:
+            self.directory[a][b][c].remove(subscriber)
+            if not self.directory[a][b][c]:
+                del self.directory[a][b][c]
+                if not self.directory[a][b]:
+                    del self.directory[a][b]
+                    if not self.directory[a]:
+                        del self.directory[a]
+        except KeyError:
+            pass
+
+        try:
+            del self.subscriptions[subscriber][a][b][c]
+            if not self.subscriptions[subscriber][a][b]:
+                del self.subscriptions[subscriber][a][b]
+                if not self.subscriptions[subscriber][a]:
+                    del self.subscriptions[subscriber][a]
+                    if not self.subscriptions[subscriber]:
+                        del self.subscriptions[subscriber]
+        except KeyError:
+            pass
 
     def unsubscribe(self, subscriber, sender=None, receiver=None, topic=None, everything=False):
         """
@@ -615,52 +644,23 @@ class MailingList(object):
         else: only the subscription with the given sender, receiver and topic is removed.
         """
         if subscriber not in self.subscriptions: raise ValueError(f"subscriber {subscriber} unknown.")
-        if everything is False and target is None and topic is None: raise ValueError("please read the docstring. ")
+        if everything is False and sender is None and receiver is None and topic is None: raise ValueError("please read the docstring. ")
 
         if everything:
-            for topic, target_set in self.subscriptions[subscriber].items():
-                for target in target_set:
-                    self._remove(subscriber, topic, target)
-                    self._remove(subscriber, target, topic)
-            del self.subscriptions[subscriber]
-
-        elif target is not None and topic is not None:
-            target_set = self.subscriptions[subscriber][topic]
-            assert isinstance(target_set, set)
-            target_set.remove(target)
-            if not target_set:
-                del self.subscriptions[subscriber][topic]
-            self._remove(subscriber, topic, target)
-
-        elif target is not None:
-            for subtopic, target_set in self.subscriptions[subscriber].copy().items():
-                if target in target_set:
-                    self._remove(subscriber, subtopic, target)
-                    self._remove(subscriber, target, subtopic)
-                if not target_set:
-                    del self.subscriptions[subscriber][topic]
-
-        elif topic is not None:
-            target_set = self.subscriptions[subscriber][topic]
-            for target in target_set:
-                self._remove(subscriber, topic, target)
-            del self.subscriptions[subscriber][topic]
-
+            for sender, receiver_dict in self.subscriptions[subscriber].copy().items():
+                for receiver, topic_dict in receiver_dict.copy().items():
+                    for topic, values in topic_dict.copy().items():
+                        self._remove(subscriber, sender, receiver, topic)
         else:
-            raise Exception('Bad logic')
+            self._remove(subscriber, sender, receiver, topic)
 
     def get_subscriptions(self, subscriber):
         """ returns a copy of """
         return self.subscriptions[subscriber].copy()
 
-    def get_subscriber_list(self, target=None, topic=None):
+    def get_subscriber_list(self, sender=None, receiver=None, topic=None):
         try:
-            if target and topic:  # only retrieve subscribers of target on topic.
-                return list(self.directory[target][topic].keys())
-            if target is not None:  # only retrieve subscribers of target ALL topics.
-                return [v for z in self.directory[target].values() for v in z.keys()]
-            if topic is not None:  # only retrieve subscribers of topic ALL agents.
-                return list(self.directory[topic][target].keys())
+            return self.directory[sender][receiver][topic]
         except KeyError:
             return []
 
@@ -668,23 +668,35 @@ class MailingList(object):
         assert isinstance(message, AgentMessage)
         recipients = {}
 
-        if message.receiver is None:  # it's a broadcast: Go to topic.
-            pass
-        else:  # it's a direct message.
-            if None in self.directory[message.receiver]:  # the receiver exists as an agent.
-                # retrieve set of subscribers of messages send to this agent no matter the topic.
-                recipients.update({receiver: True for receiver in self.directory[message.receiver][None].keys()})
+        # Generate all combinations
+        sender, receiver, topic = message.sender, message.receiver, message.topic
 
-            if message.topic in self.directory[message.receiver]:  # there are subscribers who
-                # are interested only in the agent when it receives a message with a specific topic.
-                recipients.update({receiver: True for receiver in
-                                   self.directory[message.receiver][message.topic].keys()})
-
-        # Topic:
-        if message.topic in self.directory:  # there are subscribers interested in this topic no
-            # matter which agent is supposed to receive the message
-            if None in self.directory[message.topic]:
-                recipients.update({receiver: True for receiver in self.directory[message.topic][None].keys()})
+        if sender in self.directory:
+            sender_dict = self.directory[sender]
+            if receiver in sender_dict:
+                sender_receiver_dict = sender_dict[receiver]
+                if topic in sender_receiver_dict:
+                    recipients.update({target: True for target in sender_receiver_dict[topic]})
+                if None in sender_receiver_dict:
+                    recipients.update({target: True for target in sender_receiver_dict[None]})
+            if None in sender_dict:
+                sender_none_dict = sender_dict[None]
+                if topic in sender_none_dict:
+                    recipients.update({target: True for target in sender_none_dict[topic]})
+                if None in sender_none_dict:
+                    recipients.update({target: True for target in sender_none_dict[None]})
+        if None in self.directory:
+            none_dict = self.directory[None]
+            if receiver in none_dict:
+                none_receiver_dict = none_dict[receiver]
+                if topic in none_receiver_dict:
+                    recipients.update({target: True for target in none_receiver_dict[topic]})
+                if None in none_receiver_dict:
+                    recipients.update({target: True for target in none_receiver_dict[None]})
+            if None in none_dict:
+                none_none_dict = none_dict[None]
+                if topic in none_none_dict:
+                    recipients.update({target: True for target in none_none_dict[topic]})
 
         return recipients.keys()
 
