@@ -319,39 +319,41 @@ class Agent(object):
         assert isinstance(self._clock, Clock)
         self._clock.clear_alarms(receiver=receiver, topic=topic)
 
-    def subscribe(self, target=None, topic=None):
+    def subscribe(self, sender=None, receiver=None, topic=None):
         """
-        :param target: optional, the uuid of the agent that self wants to subscribe to.
+        :param sender: optional, the uuid of the agent that self wants to subscribe to when the agent is the sender.
+        :param receiver: optional, the uuid of the agent that self wants to subscribe to when the agent is the receiver.
         :param topic: optional, the topic of the message that self want to subscribe to.
 
         A method to be used by the agent to set and subscribe to a particular topic
 
         Examples:
-        To subscribe to messages for the agent itself, use: topic=self.uuid
-
-        To subscribe to messages for the agents own class (including class broadcasts),
-        use: topic=self.__class__.__name__
-
-        To subscribe to messages of a particular subject, use:
-        topic=AgentMessage.__class__.__name__
+        If sender and topic: only messages of topic from sender will be received.
+        If receiver and topic: only messages of topic for receiver will be received.
+        If sender and receiver: only messages for receiver from sender will be received.
+        If sender only: messages from sender will be received.
+        If receiver only: messages for receiver will be received.
+        If topic only: message with said topic will be received.
 
         """
         assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
-        self._scheduler_api.subscribe(subscriber=self.uuid, target=target, topic=topic)
+        self._scheduler_api.subscribe(subscriber=self.uuid, sender=sender, receiver=receiver, topic=topic)
 
-    def unsubscribe(self, target=None, topic=None, everything=False):
-        """ A method to be used by the agent to unset and unsubscribe to a particular topic
-        :param target: string or None. If None, the agent unsubscribes to topic.
-        :param topic: string or None. If None, the agent unsubscribes from everything.
+    def unsubscribe(self, sender=None, receiver=None, topic=None, everything=False):
+        """ A method to be used by the agent to unset and unsubscribe from a particular topic
+        :param sender: string or None
+        :param receiver: string or None
+        :param topic: string or None
 
         Note that all agents automatically unsubscribe at teardown.
         """
         assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
-        self._scheduler_api.unsubscribe(subscriber=self.uuid, target=target, topic=topic, everything=everything)
+        self._scheduler_api.unsubscribe(subscriber=self.uuid, sender=sender, receiver=receiver, topic=topic,
+                                        everything=everything)
 
-    def get_subscriber_list(self, target=None, topic=None):
+    def get_subscriber_list(self, sender=None, receiver=None, topic=None):
         assert isinstance(self._scheduler_api, Scheduler), "agent must be added to scheduler using scheduler.add(agent)"
-        return self._scheduler_api.get_subscriber_list(target=target, topic=topic)
+        return self._scheduler_api.get_subscriber_list(sender=sender, receiver=receiver, topic=topic)
 
     def get_subscriptions(self):
         """ return dict of subscriptions """
@@ -564,100 +566,101 @@ class MailingList(object):
         self.subscriptions = defaultdict(dict)
 
     def topics(self):
-        return set(self.directory.keys()) - {None}
+        topics = set()
+        for sender, receiver_dict in self.directory.items():
+            topics.add(sender)
+            for receiver, topic_dict in receiver_dict.items():
+                topics.add(receiver)
+                for topic in topic_dict.keys():
+                    topics.add(topic)
+        return topics - {None}
 
-    def subscribe(self, subscriber, target=None, topic=None):
-        """ subscribe to messages intended for target/topic
+    def subscribe(self, subscriber, sender=None, receiver=None, topic=None):
+        """ subscribe to messages intended for other agents.
         :param subscriber: subscriber id
-        :param target: target id (optional)
+        :param sender: sender id (optional)
+        :param receiver: receiver id (optional)
         :param topic: topic (optional)
 
-        If target and topic: only messages of topic for target will be received.
-        if target, no topic: messages for target will be received.
-        if topic, no target: message with said topic will be received.
+        If sender and topic: only messages of topic from sender will be received.
+        If receiver and topic: only messages of topic for receiver will be received.
+        If sender and receiver: only messages for receiver from sender will be received.
+        If sender only: messages from sender will be received.
+        If receiver only: messages for receiver will be received.
+        If topic only: message with said topic will be received.
         """
-        self._add(a=subscriber, b=target, c=topic)  # target registry:
-        self._add(a=subscriber, b=topic, c=target)  # topic registry
+        self._add(subscriber=subscriber, a=sender, b=receiver, c=topic)
 
-        if topic not in self.subscriptions[subscriber]:
-            self.subscriptions[subscriber][topic] = set()
-        self.subscriptions[subscriber][topic].add(target)
-
-    def _add(self, a, b, c):
+    def _add(self, subscriber, a, b, c):
         """ insert helper """
-        if c not in self.directory[b]:
-            self.directory[b][c] = {}
-        self.directory[b][c][a] = True
+        if b in self.directory[a]:
+            if c in self.directory[a][b]:
+                self.directory[a][b][c].append(subscriber)
+            else:
+                self.directory[a][b][c] = [subscriber]
+        else:
+            self.directory[a][b] = {c: [subscriber]}
 
-    def _remove(self, a, b, c):
+        if a not in self.subscriptions[subscriber]:
+            self.subscriptions[subscriber][a] = {b: {c: True}}
+        elif b not in self.subscriptions[subscriber][a]:
+            self.subscriptions[subscriber][a][b] = {c: True}
+        elif c not in self.subscriptions[subscriber][a][b]:
+            self.subscriptions[subscriber][a][b][c] = True
+
+    def _remove(self, subscriber, a, b, c):
         """ cleanup helper """
-        del self.directory[b][c][a]
-        if not self.directory[b][c]:
-            del self.directory[b][c]
-        if not self.directory[b]:
-            del self.directory[b]
+        try:
+            self.directory[a][b][c].remove(subscriber)
+            if not self.directory[a][b][c]:
+                del self.directory[a][b][c]
+                if not self.directory[a][b]:
+                    del self.directory[a][b]
+                    if not self.directory[a]:
+                        del self.directory[a]
+        except KeyError:
+            pass
 
-    def unsubscribe(self, subscriber, target=None, topic=None, everything=False):
+        try:
+            del self.subscriptions[subscriber][a][b][c]
+            if not self.subscriptions[subscriber][a][b]:
+                del self.subscriptions[subscriber][a][b]
+                if not self.subscriptions[subscriber][a]:
+                    del self.subscriptions[subscriber][a]
+                    if not self.subscriptions[subscriber]:
+                        del self.subscriptions[subscriber]
+        except KeyError:
+            pass
+
+    def unsubscribe(self, subscriber, sender=None, receiver=None, topic=None, everything=False):
         """
         :param subscriber: the subscribing agent
-        :param target: hashable
+        :param sender: hashable
+        :param receiver: hashable
         :param topic: hashable
         :param everything: Unsubscribes from all mailing lists.
 
         if everything: all subscriptions are removed.
-        if target and topic: only subscription on target + topic will be removed.
-        if target only: all subscribers subscriptions on target is removed.
-            None of the targets own subscriptions are affected.
-        if topic only: all the subscribers subscriptions to topic is removed.
-            None of the target subscriptions to said topic are removed.
+        else: only the subscription with the given sender, receiver and topic is removed.
         """
         if subscriber not in self.subscriptions: raise ValueError(f"subscriber {subscriber} unknown.")
-        if everything is False and target is None and topic is None: raise ValueError("please read the docstring. ")
+        if everything is False and sender is None and receiver is None and topic is None: raise ValueError("please read the docstring. ")
 
         if everything:
-            for topic, target_set in self.subscriptions[subscriber].items():
-                for target in target_set:
-                    self._remove(subscriber, topic, target)
-                    self._remove(subscriber, target, topic)
-            del self.subscriptions[subscriber]
-
-        elif target is not None and topic is not None:
-            target_set = self.subscriptions[subscriber][topic]
-            assert isinstance(target_set, set)
-            target_set.remove(target)
-            if not target_set:
-                del self.subscriptions[subscriber][topic]
-            self._remove(subscriber, topic, target)
-
-        elif target is not None:
-            for subtopic, target_set in self.subscriptions[subscriber].copy().items():
-                if target in target_set:
-                    self._remove(subscriber, subtopic, target)
-                    self._remove(subscriber, target, subtopic)
-                if not target_set:
-                    del self.subscriptions[subscriber][topic]
-
-        elif topic is not None:
-            target_set = self.subscriptions[subscriber][topic]
-            for target in target_set:
-                self._remove(subscriber, topic, target)
-            del self.subscriptions[subscriber][topic]
-
+            for sender, receiver_dict in self.subscriptions[subscriber].copy().items():
+                for receiver, topic_dict in receiver_dict.copy().items():
+                    for topic, values in topic_dict.copy().items():
+                        self._remove(subscriber, sender, receiver, topic)
         else:
-            raise Exception('Bad logic')
+            self._remove(subscriber, sender, receiver, topic)
 
     def get_subscriptions(self, subscriber):
         """ returns a copy of """
         return self.subscriptions[subscriber].copy()
 
-    def get_subscriber_list(self, target=None, topic=None):
+    def get_subscriber_list(self, sender=None, receiver=None, topic=None):
         try:
-            if target and topic:  # only retrieve subscribers of target on topic.
-                return list(self.directory[target][topic].keys())
-            if target is not None:  # only retrieve subscribers of target ALL topics.
-                return [v for z in self.directory[target].values() for v in z.keys()]
-            if topic is not None:  # only retrieve subscribers of topic ALL agents.
-                return list(self.directory[topic][target].keys())
+            return self.directory[sender][receiver][topic]
         except KeyError:
             return []
 
@@ -665,23 +668,35 @@ class MailingList(object):
         assert isinstance(message, AgentMessage)
         recipients = {}
 
-        if message.receiver is None:  # it's a broadcast: Go to topic.
-            pass
-        else:  # it's a direct message.
-            if None in self.directory[message.receiver]:  # the receiver exists as an agent.
-                # retrieve set of subscribers of messages send to this agent no matter the topic.
-                recipients.update({receiver: True for receiver in self.directory[message.receiver][None].keys()})
+        # Generate all combinations
+        sender, receiver, topic = message.sender, message.receiver, message.topic
 
-            if message.topic in self.directory[message.receiver]:  # there are subscribers who
-                # are interested only in the agent when it receives a message with a specific topic.
-                recipients.update({receiver: True for receiver in
-                                   self.directory[message.receiver][message.topic].keys()})
-
-        # Topic:
-        if message.topic in self.directory:  # there are subscribers interested in this topic no
-            # matter which agent is supposed to receive the message
-            if None in self.directory[message.topic]:
-                recipients.update({receiver: True for receiver in self.directory[message.topic][None].keys()})
+        if sender in self.directory:
+            sender_dict = self.directory[sender]
+            if receiver in sender_dict:
+                sender_receiver_dict = sender_dict[receiver]
+                if topic in sender_receiver_dict:
+                    recipients.update({target: True for target in sender_receiver_dict[topic]})
+                if None in sender_receiver_dict:
+                    recipients.update({target: True for target in sender_receiver_dict[None]})
+            if None in sender_dict:
+                sender_none_dict = sender_dict[None]
+                if topic in sender_none_dict:
+                    recipients.update({target: True for target in sender_none_dict[topic]})
+                if None in sender_none_dict:
+                    recipients.update({target: True for target in sender_none_dict[None]})
+        if None in self.directory:
+            none_dict = self.directory[None]
+            if receiver in none_dict:
+                none_receiver_dict = none_dict[receiver]
+                if topic in none_receiver_dict:
+                    recipients.update({target: True for target in none_receiver_dict[topic]})
+                if None in none_receiver_dict:
+                    recipients.update({target: True for target in none_receiver_dict[None]})
+            if None in none_dict:
+                none_none_dict = none_dict[None]
+                if topic in none_none_dict:
+                    recipients.update({target: True for target in none_none_dict[topic]})
 
         return recipients.keys()
 
@@ -736,8 +751,8 @@ class Scheduler(object):
         agent._scheduler_api = self
         agent._clock = self.clock
 
-        self.subscribe(subscriber=agent.uuid, target=agent.uuid, topic=None)
-        self.subscribe(subscriber=agent.uuid, target=None, topic=agent.__class__.__name__)
+        self.subscribe(subscriber=agent.uuid, receiver=agent.uuid, topic=None)
+        self.subscribe(subscriber=agent.uuid, receiver=None, topic=agent.__class__.__name__)
         agent.setup()
 
         if agent.keep_awake:
@@ -883,18 +898,22 @@ class Scheduler(object):
     def pause(self):
         self._quit = True
 
-    def subscribe(self, subscriber=None, target=None, topic=None):
+    def subscribe(self, subscriber=None, sender=None, receiver=None, topic=None):
         """ subscribe lets the Agent react to SubscribeMessage and adds the subscriber.
         to registered subscribers. Used by default during `_setup` by all agents.
 
-        subscribe to messages intended for target/topic
+        subscribe to messages intended for other agents.
         :param subscriber: subscriber id
-        :param target: target id (optional)
+        :param sender: sender id (optional)
+        :param receiver: receiver id (optional)
         :param topic: topic (optional)
 
-        If target and topic: only messages of topic for target will be received.
-        if target, no topic: messages for target will be received.
-        if topic, no target: message with said topic will be received.
+        If sender and topic: only messages of topic from sender will be received.
+        If receiver and topic: only messages of topic for receiver will be received.
+        If sender and receiver: only messages for receiver from sender will be received.
+        If sender only: messages from sender will be received.
+        If receiver only: messages for receiver will be received.
+        If topic only: message with said topic will be received.
 
         Any agent may subscribe for the same topic many times (this is idempotent)
         """
@@ -903,33 +922,43 @@ class Scheduler(object):
         if topic in self.agents:
             raise ValueError(f"{topic} is also id of a registered agent: {self.agents[topic]}")
 
-        if target and topic:
-            self.log(level=DEBUG, msg=f"{subscriber} subscribing to {target} on topic {topic} only")
-        elif target is not None:
-            self.log(level=DEBUG, msg=f"{subscriber} subscribing to {target} on all topics.")
-        elif topic is not None:
-            self.log(level=DEBUG, msg=f"{subscriber} subscribing to {topic} for all agents.")
+        if sender and receiver and topic:
+            raise ValueError("A maximum of two of sender, receiver, topic can be specified.")
+        elif sender and receiver:
+            self.log(level=DEBUG, msg=f"{subscriber} subscribing to msgs from {sender} to {receiver} on all topics")
+        elif sender and topic:
+            self.log(level=DEBUG, msg=f"{subscriber} subscribing to msgs from {sender} on topic {topic} to all agents")
+        elif receiver and topic:
+            self.log(level=DEBUG, msg=f"{subscriber} subscribing to msgs to {receiver} on topic {topic} from all agents")
+        elif sender:
+            self.log(level=DEBUG, msg=f"{subscriber} subscribing to msgs from {sender} to all agents on all topics")
+        elif receiver:
+            self.log(level=DEBUG, msg=f"{subscriber} subscribing to msgs to {receiver} from all agents on all topics")
+        elif topic:
+            self.log(level=DEBUG, msg=f"{subscriber} subscribing to msgs on topic {topic} from all agents to all agents")
         else:
-            raise ValueError(f"no target and no topic.")
-        self.mailing_lists.subscribe(subscriber=subscriber, topic=topic, target=target)
+            raise ValueError(f"invalid subscription attempt, set a maximum of 2 of sender, receiver or topic.")
+        self.mailing_lists.subscribe(subscriber=subscriber, sender=sender, topic=topic, receiver=receiver)
 
-    def unsubscribe(self, subscriber, target=None, topic=None, everything=False):
+    def unsubscribe(self, subscriber, sender=None, receiver=None, topic=None, everything=False):
         """ unsubscribes a subscriber from messages.
         :param subscriber: the agent uuid listening to messages
-        :param target: the agent receiving messages
-        :param topic: the topic received by the target
+        :param sender: the agent sending messages
+        :param receiver: the agent receiving messages
+        :param topic: the topic received by the receiver
         """
-        self.mailing_lists.unsubscribe(subscriber, target, topic, everything=everything)
+        self.mailing_lists.unsubscribe(subscriber, sender, receiver, topic, everything=everything)
 
-    def get_subscriber_list(self, target=None, topic=None):
+    def get_subscriber_list(self, sender=None, receiver=None, topic=None):
         """ Returns the list of subscribers of a particular topic for particular topics.
-        :param target: the agent receiving messages
-        :param topic: the topic received by the target
+        :param sender: the agent sending messages
+        :param receiver: the agent receiving messages
+        :param topic: the topic received by the receiver
         :return list of subscribers
         """
-        if not target and not topic:
-            raise ValueError(f"no target and no topic.")
-        return self.mailing_lists.get_subscriber_list(target, topic)
+        if not sender and not receiver and not topic:
+            raise ValueError(f"no send and no receiver and no topic.")
+        return self.mailing_lists.get_subscriber_list(sender, receiver, topic)
 
     def get_subscription_topics(self):
         """ Returns the list of subscription topics"""
