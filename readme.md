@@ -24,7 +24,7 @@ All right reserved &copy; 2016-2023. MIT-license. All code has been written by t
 MASlite is a simle python module for creating multi-agent simulations.
 
 - _Simple_ API: Only 3 modules to learn: Scheduler, Agent & Agent message
-- _Fast_: Handles up to 270 million messages per second
+- _Fast_: Handles up to 2.7 million messages per second
 - _Lightweight_: 52kB.
 
 It only has 3 components:
@@ -32,7 +32,7 @@ It only has 3 components:
 - The scheduler (main loop)
   - handles pause and proceed with a single call.
   - assures repeatability in execution, which makes agents easy to debug.
-  - handles up to 270 million messages per second.
+  - handles up to 2.7 million messages per second.
 
 - Agent's 
 
