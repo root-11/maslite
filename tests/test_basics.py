@@ -49,6 +49,25 @@ def test_message():
     msg.topic = 3
 
 
+def test_direct_message():
+    msg = TrialMessage(1, 2, direct=True)
+    assert msg.sender == 1
+    assert msg.receiver == 2
+    assert msg.direct is True
+
+    try:
+        _ = TrialMessage(1, direct=True)  # cannot have a direct broadcast
+    except ValueError as e:
+        assert str(e) == "Cannot have a direct message without a receiver"
+
+    broadcast = TrialMessage(1)
+
+    try:
+        broadcast.direct = True  # cannot have a direct broadcast
+    except ValueError as e:
+        assert str(e) == "Cannot have a direct message without a receiver"
+
+
 def tests_message_exchange():
     a = Agent()
     assert isinstance(a.inbox, deque)
@@ -180,7 +199,8 @@ def test_message_and_broadcast_subscriptions():
     msg_2 = TrialMessage(sender=b.uuid, receiver=a.uuid, topic='Hello')
     msg_3 = TrialMessage(sender=b.uuid, receiver=c.uuid, topic='Hello')
     msg_4 = TrialMessage(sender=c.uuid, topic='Hello')  # a broadcast message
-    msg_5 = TrialMessage(sender=a.uuid, receiver=b.uuid, topic='How are you?')  # a broadcast message
+    msg_5 = TrialMessage(sender=a.uuid, receiver=b.uuid, topic='How are you?')
+    msg_6 = TrialMessage(sender=a.uuid, receiver=b.uuid, topic='How are you, really?', direct=True)  # a direct message
 
     # spies need to subscribe
     spy_a_b.subscribe(sender=a.uuid, receiver=b.uuid)  # spy_a_b subscribes to all messages sent from a to b
@@ -241,6 +261,12 @@ def test_message_and_broadcast_subscriptions():
     assert len(b.inbox) == len(spy_a_b.inbox) == 1
     b.inbox.clear()
     spy_a_b.inbox.clear()
+
+    s.mail_queue.append(msg_6)
+    s.process_mail_queue()
+    assert len(a.inbox) == len(c.inbox) == len(spy_a_b.inbox) == len(spy_b_hello.inbox) == len(spy_hello.inbox) == 0
+    # b received the message sent to it - but since it was a direct message ALL subscription was ignored
+    assert len(b.inbox) == 1
 
 
 def tests_add_to_scheduler():
