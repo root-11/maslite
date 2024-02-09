@@ -121,18 +121,13 @@ def test_subscribe_and_unsubscribe():
     a.subscribe(topic='quantum physics')
     c.subscribe(receiver=a.uuid)
 
-    assert a.get_subscriptions() == {None: {a.uuid: {None: True},
-                                            None: {"Agent": True,
-                                                   "quantum physics": True},
+    assert a.get_subscriptions() == {None: {None: {"quantum physics": True},
                                             b.uuid: {"fish": True},
                                             c.uuid: {"fish": True}}}
 
-    assert b.get_subscriptions() == {None: {b.uuid: {None: True},
-                                            None: {"Agent": True}}}
+    assert b.get_subscriptions() == {}
 
-    assert c.get_subscriptions() == {None: {c.uuid: {None: True},
-                                            None: {"Agent": True},
-                                            a.uuid: {None: True}}}
+    assert c.get_subscriptions() == {None: {a.uuid: {None: True}}}
 
     c.unsubscribe(everything=True)
     d3 = c.get_subscriptions()
@@ -141,9 +136,7 @@ def test_subscribe_and_unsubscribe():
     c.subscribe(receiver=c.uuid)
     assert c.get_subscriptions() == {None: {c.uuid: {None: True}}}
 
-    assert a.get_subscriptions() == {None: {a.uuid: {None: True},
-                                            None: {"Agent": True,
-                                                   "quantum physics": True},
+    assert a.get_subscriptions() == {None: {None: {"quantum physics": True},
                                             b.uuid: {"fish": True},
                                             c.uuid: {"fish": True}}}
 
@@ -169,7 +162,9 @@ def test_subscriptions():
     assert m.get_subscriber_list(topic='B') == []
 
     m.subscribe(subscriber=4, receiver=1, topic='Z')
+    assert m.get_subscriber_list(receiver=1, topic='Z') == [4]
     m.unsubscribe(4, everything=True)  # mailing list doesn't care, but scheduler will complain.
+    assert m.get_subscriber_list(receiver=1, topic='Z') == []
 
 
 def test_message_and_broadcast_subscriptions():
@@ -261,15 +256,6 @@ def tests_add_to_scheduler():
     assert a.count_setups == 1
     assert a.get_subscription_topics() == s.get_subscription_topics(), "these should be the same"
 
-    assert a.uuid in a.get_subscription_topics()
-    assert a.__class__.__name__ in a.get_subscription_topics()
-    a.unsubscribe(topic=a.__class__.__name__)
-    assert a.uuid in a.get_subscription_topics()
-    assert a.__class__.__name__ not in a.get_subscription_topics()
-    assert a.uuid in a.get_subscriber_list(receiver=a.uuid)
-    a.subscribe(topic=a.__class__.__name__)
-    assert a.__class__.__name__ in a.get_subscription_topics()
-
     assert a.messages is False
     m = TrialMessage(sender=a, receiver=a)
     assert m.sender == a.uuid
@@ -313,7 +299,6 @@ def tests_add_to_scheduler():
     b = TrialAgent()
     a.add(b)
     assert b.uuid in s.agents
-    assert b.uuid in a.get_subscription_topics()
 
     try:
         a.add(b)
@@ -323,7 +308,6 @@ def tests_add_to_scheduler():
 
     a.remove(b.uuid)
     assert b.uuid not in s.agents
-    assert b.uuid not in a.get_subscription_topics()
     a.add(b)
 
     s.run()

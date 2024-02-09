@@ -643,7 +643,9 @@ class MailingList(object):
         if everything: all subscriptions are removed.
         else: only the subscription with the given sender, receiver and topic is removed.
         """
-        if subscriber not in self.subscriptions: raise ValueError(f"subscriber {subscriber} unknown.")
+        if subscriber not in self.subscriptions:
+            # The subscriber was never subscribed to anything in the first place - which is completely valid!
+            return
         if everything is False and sender is None and receiver is None and topic is None: raise ValueError("please read the docstring. ")
 
         if everything:
@@ -666,10 +668,14 @@ class MailingList(object):
 
     def get_mail_recipients(self, message):
         assert isinstance(message, AgentMessage)
-        recipients = {}
 
         # Generate all combinations
         sender, receiver, topic = message.sender, message.receiver, message.topic
+
+        if receiver is None:
+            recipients = {}
+        else:
+            recipients = {receiver: True}
 
         if sender in self.directory:
             sender_dict = self.directory[sender]
@@ -751,8 +757,6 @@ class Scheduler(object):
         agent._scheduler_api = self
         agent._clock = self.clock
 
-        self.subscribe(subscriber=agent.uuid, receiver=agent.uuid, topic=None)
-        self.subscribe(subscriber=agent.uuid, receiver=None, topic=agent.__class__.__name__)
         agent.setup()
 
         if agent.keep_awake:
