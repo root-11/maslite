@@ -38,94 +38,34 @@ class AgentMessage(object):
         :param direct: bool; If True the message will not be checked for subscribers, it will only be sent to the
         receiver. As such, receiver cannot be None if direct is True.
         """
-        self._sender = None
-        self._receiver = None
-        self._topic = None
-        self._direct = False
-        self.sender = sender  # sender must be an agent, as a response otherwise can't be returned.
-        self.receiver = receiver  # the uuid of the receiving agent.
+        if isinstance(sender, Agent):
+            sender = sender.uuid
+        self.sender = sender  # sender must be an agent uuid or None
+
+        if isinstance(receiver, Agent):
+            receiver = receiver.uuid
+        self.receiver = receiver  # the uuid of the receiving agent or None
+
         if topic is None:
             topic = self.__class__.__name__
         self.topic = topic  # the keyword that the receiver should react upon.
+
+        if not isinstance(direct, bool):
+            raise TypeError("Direct is a bool")
+
+        if direct:
+            if self.receiver is None:
+                raise ValueError("Cannot have a direct message without a receiver")
         self.direct = direct
 
     def __str__(self):
-        return "From -> To : {} -> {} Topic: {}".format(self.sender, self.receiver, self.topic)
-
-    @property
-    def sender(self):
-        return self._sender
-
-    @sender.setter
-    def sender(self, sender):
-        """
-        :param sender: the sender (FROM)
-        :return:
-        """
-        if isinstance(sender, Agent):
-            self._sender = sender.uuid
-        elif sender is None:
-            self._sender = None
-        else:
-            self._sender = sender
-
-    @property
-    def receiver(self):
-        return self._receiver
-
-    @receiver.setter
-    def receiver(self, receiver):
-        """
-                :param receiver: the intended receiver of the message. Typically the sending
-                 agents uuid, retrievable as agent.get_uuid().
-                 if the receiver is None, the message is treated as a broadcast to all subscribers
-                 of the topic. If there are no subscribers of that topic, the mailman will drop
-                 the message.
-                :return:
-                """
-        if isinstance(receiver, Agent):
-            self._receiver = receiver.uuid
-        elif receiver is None:
-            if self._direct:
-                raise ValueError("Cannot have a direct message without a receiver")
-            # If receiver is None, the message is treated as a
-            # broadcast to all subscribers of the topic.
-            # NB. If there are no subscribers of that topic, the mailman
-            # will drop the message...
-            self._receiver = None
-        else:
-            self._receiver = receiver
+        return f"From -> To : {self.sender} -> {self.receiver} Topic: {self.topic} Direct: {self.direct}"
 
     def copy(self):
         """
         :return: deep copy of the object.
         """
         raise NotImplementedError("subclasses must implement a suitable copy method.")
-
-    @property
-    def topic(self):
-        """
-        :return: The topic of the message. Typically the saame as Message.__class__.__name__
-        """
-        return self._topic
-
-    @topic.setter
-    def topic(self, topic):
-        self._topic = topic
-
-    @property
-    def direct(self):
-        """
-        :return: Is the message a direct message? I.e. is it destined for only its receiver
-        """
-        return self._direct
-
-    @direct.setter
-    def direct(self, direct):
-        if direct:
-            if self._receiver is None:
-                raise ValueError("Cannot have a direct message without a receiver")
-        self._direct = direct
 
 
 class Agent(object):
