@@ -30,19 +30,24 @@ class AgentMessage(object):
     how to get it to the subscribers.
     """
 
-    def __init__(self, sender, receiver=None, topic=None):
+    def __init__(self, sender, receiver=None, topic=None, direct=False):
         """
         :param sender: The agent (class Agent) or agent-uuid of the sender
         :param receiver: None (broadcast) or The agent (class Agent) or agent-uuid of the receiver
         :param topic: The topic; default is self.__class__.__name__ of the message subclass
+        :param direct: bool; If True the message will not be checked for subscribers, it will only be sent to the
+        receiver. As such, receiver cannot be None if direct is True.
         """
         self._sender = None
-        self.sender = sender  # sender must be an agent, as a response otherwise can't be returned.
         self._receiver = None
+        self._topic = None
+        self._direct = False
+        self.sender = sender  # sender must be an agent, as a response otherwise can't be returned.
         self.receiver = receiver  # the uuid of the receiving agent.
         if topic is None:
             topic = self.__class__.__name__
-        self._topic = topic  # the keyword that the receiver should react upon.
+        self.topic = topic  # the keyword that the receiver should react upon.
+        self.direct = direct
 
     def __str__(self):
         return "From -> To : {} -> {} Topic: {}".format(self.sender, self.receiver, self.topic)
@@ -81,6 +86,8 @@ class AgentMessage(object):
         if isinstance(receiver, Agent):
             self._receiver = receiver.uuid
         elif receiver is None:
+            if self._direct:
+                raise ValueError("Cannot have a direct message without a receiver")
             # If receiver is None, the message is treated as a
             # broadcast to all subscribers of the topic.
             # NB. If there are no subscribers of that topic, the mailman
@@ -105,6 +112,20 @@ class AgentMessage(object):
     @topic.setter
     def topic(self, topic):
         self._topic = topic
+
+    @property
+    def direct(self):
+        """
+        :return: Is the message a direct message? I.e. is it destined for only its receiver
+        """
+        return self._direct
+
+    @direct.setter
+    def direct(self, direct):
+        if direct:
+            if self._receiver is None:
+                raise ValueError("Cannot have a direct message without a receiver")
+        self._direct = direct
 
 
 class Agent(object):
@@ -643,7 +664,9 @@ class MailingList(object):
         if everything: all subscriptions are removed.
         else: only the subscription with the given sender, receiver and topic is removed.
         """
-        if subscriber not in self.subscriptions: raise ValueError(f"subscriber {subscriber} unknown.")
+        if subscriber not in self.subscriptions:
+            # The subscriber was never subscribed to anything in the first place - which is completely valid!
+            return
         if everything is False and sender is None and receiver is None and topic is None: raise ValueError("please read the docstring. ")
 
         if everything:
@@ -666,10 +689,17 @@ class MailingList(object):
 
     def get_mail_recipients(self, message):
         assert isinstance(message, AgentMessage)
-        recipients = {}
 
-        # Generate all combinations
+        if message.direct:
+            return [message.receiver]
+
+        # Fetch directory values once
         sender, receiver, topic = message.sender, message.receiver, message.topic
+
+        if receiver is None:
+            recipients = {}
+        else:
+            recipients = {receiver: True}
 
         if sender in self.directory:
             sender_dict = self.directory[sender]
@@ -751,8 +781,6 @@ class Scheduler(object):
         agent._scheduler_api = self
         agent._clock = self.clock
 
-        self.subscribe(subscriber=agent.uuid, receiver=agent.uuid, topic=None)
-        self.subscribe(subscriber=agent.uuid, receiver=None, topic=agent.__class__.__name__)
         agent.setup()
 
         if agent.keep_awake:

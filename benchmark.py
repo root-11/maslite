@@ -29,9 +29,9 @@ if __name__ == "__main__":
     s.run(seconds=10)
     print(f"{m.value/10:,} messages/second")
 
-    # :~$ python3.10 benchmarks.py
-    # 340,283.8 messages/second
+    # :~$ python3.9 benchmarks.py
+    # 480,440.9 messages/second
 
     # :-$ pypy3 benchmarks.py
-    # 2,975,577.7 messages/second
+    # 6,441,251.9 messages/second
     

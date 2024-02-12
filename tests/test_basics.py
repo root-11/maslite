@@ -49,6 +49,25 @@ def test_message():
     msg.topic = 3
 
 
+def test_direct_message():
+    msg = TrialMessage(1, 2, direct=True)
+    assert msg.sender == 1
+    assert msg.receiver == 2
+    assert msg.direct is True
+
+    try:
+        _ = TrialMessage(1, direct=True)  # cannot have a direct broadcast
+    except ValueError as e:
+        assert str(e) == "Cannot have a direct message without a receiver"
+
+    broadcast = TrialMessage(1)
+
+    try:
+        broadcast.direct = True  # cannot have a direct broadcast
+    except ValueError as e:
+        assert str(e) == "Cannot have a direct message without a receiver"
+
+
 def tests_message_exchange():
     a = Agent()
     assert isinstance(a.inbox, deque)
@@ -121,18 +140,13 @@ def test_subscribe_and_unsubscribe():
     a.subscribe(topic='quantum physics')
     c.subscribe(receiver=a.uuid)
 
-    assert a.get_subscriptions() == {None: {a.uuid: {None: True},
-                                            None: {"Agent": True,
-                                                   "quantum physics": True},
+    assert a.get_subscriptions() == {None: {None: {"quantum physics": True},
                                             b.uuid: {"fish": True},
                                             c.uuid: {"fish": True}}}
 
-    assert b.get_subscriptions() == {None: {b.uuid: {None: True},
-                                            None: {"Agent": True}}}
+    assert b.get_subscriptions() == {}
 
-    assert c.get_subscriptions() == {None: {c.uuid: {None: True},
-                                            None: {"Agent": True},
-                                            a.uuid: {None: True}}}
+    assert c.get_subscriptions() == {None: {a.uuid: {None: True}}}
 
     c.unsubscribe(everything=True)
     d3 = c.get_subscriptions()
@@ -141,9 +155,7 @@ def test_subscribe_and_unsubscribe():
     c.subscribe(receiver=c.uuid)
     assert c.get_subscriptions() == {None: {c.uuid: {None: True}}}
 
-    assert a.get_subscriptions() == {None: {a.uuid: {None: True},
-                                            None: {"Agent": True,
-                                                   "quantum physics": True},
+    assert a.get_subscriptions() == {None: {None: {"quantum physics": True},
                                             b.uuid: {"fish": True},
                                             c.uuid: {"fish": True}}}
 
@@ -169,7 +181,9 @@ def test_subscriptions():
     assert m.get_subscriber_list(topic='B') == []
 
     m.subscribe(subscriber=4, receiver=1, topic='Z')
+    assert m.get_subscriber_list(receiver=1, topic='Z') == [4]
     m.unsubscribe(4, everything=True)  # mailing list doesn't care, but scheduler will complain.
+    assert m.get_subscriber_list(receiver=1, topic='Z') == []
 
 
 def test_message_and_broadcast_subscriptions():
@@ -185,7 +199,8 @@ def test_message_and_broadcast_subscriptions():
     msg_2 = TrialMessage(sender=b.uuid, receiver=a.uuid, topic='Hello')
     msg_3 = TrialMessage(sender=b.uuid, receiver=c.uuid, topic='Hello')
     msg_4 = TrialMessage(sender=c.uuid, topic='Hello')  # a broadcast message
-    msg_5 = TrialMessage(sender=a.uuid, receiver=b.uuid, topic='How are you?')  # a broadcast message
+    msg_5 = TrialMessage(sender=a.uuid, receiver=b.uuid, topic='How are you?')
+    msg_6 = TrialMessage(sender=a.uuid, receiver=b.uuid, topic='How are you, really?', direct=True)  # a direct message
 
     # spies need to subscribe
     spy_a_b.subscribe(sender=a.uuid, receiver=b.uuid)  # spy_a_b subscribes to all messages sent from a to b
@@ -247,6 +262,12 @@ def test_message_and_broadcast_subscriptions():
     b.inbox.clear()
     spy_a_b.inbox.clear()
 
+    s.mail_queue.append(msg_6)
+    s.process_mail_queue()
+    assert len(a.inbox) == len(c.inbox) == len(spy_a_b.inbox) == len(spy_b_hello.inbox) == len(spy_hello.inbox) == 0
+    # b received the message sent to it - but since it was a direct message ALL subscription was ignored
+    assert len(b.inbox) == 1
+
 
 def tests_add_to_scheduler():
     s = Scheduler()
@@ -260,15 +281,6 @@ def tests_add_to_scheduler():
     s.add(a)
     assert a.count_setups == 1
     assert a.get_subscription_topics() == s.get_subscription_topics(), "these should be the same"
-
-    assert a.uuid in a.get_subscription_topics()
-    assert a.__class__.__name__ in a.get_subscription_topics()
-    a.unsubscribe(topic=a.__class__.__name__)
-    assert a.uuid in a.get_subscription_topics()
-    assert a.__class__.__name__ not in a.get_subscription_topics()
-    assert a.uuid in a.get_subscriber_list(receiver=a.uuid)
-    a.subscribe(topic=a.__class__.__name__)
-    assert a.__class__.__name__ in a.get_subscription_topics()
 
     assert a.messages is False
     m = TrialMessage(sender=a, receiver=a)
@@ -313,7 +325,6 @@ def tests_add_to_scheduler():
     b = TrialAgent()
     a.add(b)
     assert b.uuid in s.agents
-    assert b.uuid in a.get_subscription_topics()
 
     try:
         a.add(b)
@@ -323,7 +334,6 @@ def tests_add_to_scheduler():
 
     a.remove(b.uuid)
     assert b.uuid not in s.agents
-    assert b.uuid not in a.get_subscription_topics()
     a.add(b)
 
     s.run()
