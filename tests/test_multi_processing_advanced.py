@@ -67,8 +67,8 @@ class Conveyor(maslite.Agent):
     def __init__(self, id) -> None:
         super().__init__(id)
         ops = {
-            TransferNotification.__name__: self.tn,
-            TransferAcceptance.__name__: self.ta,
+            TransferNotification.__name__: self.transfer_notification,
+            TransferAcceptance.__name__: self.transfer_acceptance,
             Transfer.__name__: self.transfer
         }
         self.operations.update(ops)
@@ -82,14 +82,15 @@ class Conveyor(maslite.Agent):
             ops(msg)
         self.inbox.clear()
     
-    def tn(self, msg):
+    def transfer_notification(self, msg):
         assert isinstance(msg, TransferNotification)
         # all conveyors are operating at the same speed, so I spare the math.
         self.send(TransferAcceptance(self.uuid, r=msg.s))
     
-    def ta(self,msg):
+    def transfer_acceptance(self,msg):
         assert isinstance(msg, TransferAcceptance)
         self.send(Transfer(self.uuid, r=msg.s, obj=self.lu))
+        self.lu = None
     
     def transfer(self, msg):
         assert isinstance(msg, Transfer)
@@ -319,10 +320,10 @@ class MPmain:
 
 def test_multiprocessing():
     """
-    Demonstrates the multiprocessing where mpmain has two schedulers
-    which each have two agents (4 agents in total).
-    Each agent decides at random who to send a message to. 
-    The demonstration stops when all messages have been signed by all agents.
+    Demonstrates multiprocessing where 4 conveyors
+    handing over a box from one processor to another,
+    illustrating that the 2 simulations can be fully 
+    synchronised using nothing but a shared clock.
     """
     with MPmain(speed=100.0) as main:
     
@@ -332,6 +333,7 @@ def test_multiprocessing():
         a4 = Conveyor(4)
 
         lu = LogisticUnit(route=[1,2,3,4])
+
         leading_edge = (a1.length / 2) + (lu.length / 2)
 
         s1 = main.new_partition()
@@ -345,6 +347,35 @@ def test_multiprocessing():
         a1.put(lu, leading_edge)
 
         main.run()
+
+def test_time_resolution():
+    """ test proves that time progresses correctly. """
+    start = monotonic()
+    sim_clock, wall_clock = [],[]
+    clock_speed = 10_000
+
+    # after setting clock speed, we now run the clock for 100 steps.
+    for _ in range(100):
+        now = monotonic()
+        wall_clock.append(now)
+        sim_now = start + (now-start)*clock_speed
+        sim_clock.append(sim_now)
+        # the sim time and wall clock time has now been recorded.
+    
+    # now we walk through each pair of values in the list of 
+    # sim_clock and wall_clock and measure the step size.
+    # by dividing the sim_step with wall_step, we should get the
+    # original clock speed back.
+    dtx = []
+    for ix in range(len(sim_clock)-1):
+        sim_step = sim_clock[ix] - sim_clock[ix+1]
+        wall_step = wall_clock[ix+1] - wall_clock[ix]
+        dtx.append(sim_step / wall_step)
+    assert set(dtx) == {clock_speed}
+    # The assertion above guarantees two things:
+    # 1. That the sim clock steps are of same size.
+    # 2. That the size is exactly the clock speed.
+
 
 if __name__ == "__main__":
     test_multiprocessing()
@@ -363,7 +394,7 @@ if __name__ == "__main__":
     # 2 starting
     # all 2 started
     #
-    # agents messages
+    # <<  TODO agents messages
     #
     # 1 stopping
     # 2 stopping

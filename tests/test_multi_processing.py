@@ -66,7 +66,7 @@ class MPmain:
     def __exit__(self, exc_type, exc_val, exc_tb):  # signature requires these, though I don't use them.
         self._stop()
 
-    def new_scheduler(self):
+    def new_partition(self):
         name = str(len(self.schedulers)+1)
         link = Link(name, ctx=self._ctx)  # communication link between mpmain and a scheduler.
         self.schedulers[name] = link
@@ -257,11 +257,13 @@ def test_multiprocessing():
 
         a1.inbox.append(ChainMsg(s=1, r=1))
 
-        s1 = main.new_scheduler()
+        # simulation partition 1
+        s1 = main.new_partition()
         s1.add(a1)
         s1.add(a2)
 
-        s2 = main.new_scheduler()
+        # simulation partition 2
+        s2 = main.new_partition()
         s2.add(a3)
         s2.add(a4)
 
@@ -280,7 +282,7 @@ if __name__ == "__main__":
     # starting
     # 2 starting
     # all 2 started
-    # Msg:(1 - <built-in function id>:<built-in function id>): []
+    # Msg:(1 - 1:1 []
     # Msg:(1 - 1:2): [1]
     # Msg:(1 - 2:3): [1, 2]
     # Msg:(1 - 2:3): [1, 2]
