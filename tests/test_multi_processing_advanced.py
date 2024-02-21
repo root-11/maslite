@@ -111,8 +111,11 @@ class Conveyor(maslite.Agent):
             self.set_alarm(zzz, tn)
 
 
-class AcceleratedClock(maslite.Clock):
-    """ A clock that is synchronized across all processes"""
+class RemoteControlledClock(maslite.Clock):
+    """ 
+    A clock that is synchronized across all processes
+    by being remote controlled by MPmain
+    """
     def __init__(self, scheduler_api, speed=1.0):
         super().__init__(scheduler_api)
         assert isinstance(speed,float)
@@ -126,7 +129,7 @@ class AcceleratedClock(maslite.Clock):
 class Scheduler(maslite.Scheduler):
     def __init__(self, logger=None, mq_to_main=None, speed=1.0):
         super().__init__(logger, real_time=False)
-        self.clock = AcceleratedClock(scheduler_api=self, speed=speed)
+        self.clock = RemoteControlledClock(scheduler_api=self, speed=speed)
         self.mq_to_main = mq_to_main
 
     def process_mail_queue(self):  # -- OVERRIDE
@@ -201,6 +204,19 @@ class SubProc:  # Partition of the the simulation.
             self.scheduler.run()
 
 
+class SimClock:
+    def __init__(self,speed) -> None:
+        self.start_time = -1
+        self.speed = speed 
+        self.wall_time = 0.0
+    @property
+    def now(self):
+        now = self.wall_time = monotonic()
+        if self.start_time == -1:
+            self.start_time = now
+        return self.start_time + (now-self.start_time)*self.speed
+    
+
 class MPmain:
     """ The main process for inter-process message exchange """
     def __init__(self, speed=1.0, context=default_context) -> None:
@@ -211,17 +227,11 @@ class MPmain:
         self._quit = False
 
         # time keeping variables.
-        self.speed = speed
-        self._start_time = -1
-        self._time = 0.0
+        self.clock = SimClock(speed=speed)
 
     @property
     def time(self):
-        now = monotonic()
-        if self._start_time == -1:
-            self._start_time = now
-        self._time = (now-self._start_time) * self.speed
-        return self._time
+        return self.clock.now
 
     def __enter__(self):
         return self
@@ -350,15 +360,16 @@ def test_multiprocessing():
 
 def test_time_resolution():
     """ test proves that time progresses correctly. """
-    start = monotonic()
     sim_clock, wall_clock = [],[]
     clock_speed = 10_000
 
+    sc = SimClock(clock_speed)
     # after setting clock speed, we now run the clock for 100 steps.
     for _ in range(100):
-        now = monotonic()
-        wall_clock.append(now)
-        sim_now = start + (now-start)*clock_speed
+        sim_now = sc.now
+        wall_now = sc.wall_time
+
+        wall_clock.append(wall_now)
         sim_clock.append(sim_now)
         # the sim time and wall clock time has now been recorded.
     
@@ -368,7 +379,7 @@ def test_time_resolution():
     # original clock speed back.
     dtx = []
     for ix in range(len(sim_clock)-1):
-        sim_step = sim_clock[ix] - sim_clock[ix+1]
+        sim_step = sim_clock[ix+1] - sim_clock[ix]
         wall_step = wall_clock[ix+1] - wall_clock[ix]
         dtx.append(sim_step / wall_step)
     assert set(dtx) == {clock_speed}
