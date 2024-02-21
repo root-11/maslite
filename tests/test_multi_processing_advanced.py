@@ -47,20 +47,25 @@ class LogisticUnit:
 
 class TransferNotification(maslite.AgentMessage):
     def __init__(self, s, r):
-        super().__init__(sender=s,receiver=r)
+        super().__init__(sender=s,receiver=r, direct=True)
 
 class TransferAcceptance(maslite.AgentMessage):
     def __init__(self, s, r):
-        super().__init__(sender=s,receiver=r)
+        super().__init__(sender=s,receiver=r, direct=True)
 
 class Transfer(maslite.AgentMessage):
     def __init__(self, s, r, obj):
-        super().__init__(sender=s,receiver=r)
+        super().__init__(sender=s,receiver=r, direct=True)
         self.obj = obj
 
 class TimeSignal:
-    def __init__(self, timestamp):
+    def __init__(self, timestamp, confirmation=None):
         self.timestamp = timestamp
+        self.confirmation = confirmation
+    def __str__(self) -> str:
+        if not self.confirmation:
+            return f"Setting time: {self.timestamp}"
+        return f"Time set at {self.confirmation}: {self.timestamp}"
 
 
 class Conveyor(maslite.Agent):
@@ -78,6 +83,7 @@ class Conveyor(maslite.Agent):
 
     def update(self):
         for msg in self.inbox:
+            print(msg)
             ops = self.operations.get(msg.topic)
             ops(msg)
         self.inbox.clear()
@@ -85,11 +91,11 @@ class Conveyor(maslite.Agent):
     def transfer_notification(self, msg):
         assert isinstance(msg, TransferNotification)
         # all conveyors are operating at the same speed, so I spare the math.
-        self.send(TransferAcceptance(self.uuid, r=msg.s))
+        self.send(TransferAcceptance(self.uuid, r=msg.sender))
     
     def transfer_acceptance(self,msg):
         assert isinstance(msg, TransferAcceptance)
-        self.send(Transfer(self.uuid, r=msg.s, obj=self.lu))
+        self.send(Transfer(self.uuid, r=msg.sender, obj=self.lu))
         self.lu = None
     
     def transfer(self, msg):
@@ -98,6 +104,7 @@ class Conveyor(maslite.Agent):
         self.put(lu,leading_edge=0)
 
     def put(self, lu, leading_edge):
+        print(f"{self.uuid}: LU received")
         assert isinstance(lu, LogisticUnit)
         self.lu = lu
         
@@ -105,8 +112,9 @@ class Conveyor(maslite.Agent):
 
         next_agent_on_route = lu.next_agent(self.uuid)
         if next_agent_on_route is None:
-            print(f"LU arrived: {lu}") 
-        else:    
+            print(f"{self.uuid}: LU arrived at destination: {lu}") 
+        else:
+            print(f"{self.uuid}: set to transfer LU in {zzz} seconds")
             tn = TransferNotification(s=self, r=next_agent_on_route)
             self.set_alarm(zzz, tn)
 
@@ -159,6 +167,7 @@ class SubProc:  # Partition of the the simulation.
         self.process = ctx.Process(group=None, target=self.run, name=name, daemon=False)
         self.name = name
         self._quit: bool = False
+        self._new_timestamp = False
 
     def start(self):
         print("starting")
@@ -182,6 +191,7 @@ class SubProc:  # Partition of the the simulation.
                 if isinstance(msg, TimeSignal):
                     # the schedulers clock is updated with the 
                     # global time from the main process.
+                    self._new_timestamp = True
                     self.scheduler.clock._time = msg.timestamp
 
                 elif isinstance(msg, maslite.AgentMessage):
@@ -202,6 +212,10 @@ class SubProc:  # Partition of the the simulation.
         while not self._quit:
             self.process_inter_proc_mail()
             self.scheduler.run()
+            # confirm to main that the current clock cycle has been completed.
+            if self._new_timestamp:
+                self.mq_to_main.put(TimeSignal(self.scheduler.clock.time, self.name))
+                self._new_timestamp = False
 
 
 class SimClock:
@@ -227,7 +241,10 @@ class MPmain:
         self._quit = False
 
         # time keeping variables.
+        self.speed = speed
         self.clock = SimClock(speed=speed)
+        self.scheduler_time = {}
+        self.last_timestamp = 0.0
 
     @property
     def time(self):
@@ -282,7 +299,7 @@ class MPmain:
                 _ = link.to_sub_proc.get_nowait()
         print(f"all {len(self.schedulers)} schedulers stopped")
 
-    def run(self, timeout=8):
+    def run(self, timeout=3):
         self._start()
         try:
             while not self._quit:
@@ -293,20 +310,27 @@ class MPmain:
             pass
 
     def process_mail_queue(self):
-        now = self.time # record the time.
+        if all(ts == self.last_timestamp for ts in self.scheduler_time.values()):
+
+            self.last_timestamp = now = self.time # record the time.
+            self.scheduler_time[-1] = now
+            for name, link in self.schedulers.items():
+                # main sends the time to all sub procs.
+                link.to_sub_proc.put(TimeSignal(now))
+
         for name, link in self.schedulers.items():
-            
             assert isinstance(link, Link)
-            # main sends the time to all sub procs.
-            link.to_sub_proc.put(TimeSignal(now))
 
             for _ in range(link.to_main.qsize()):
                 try:
                     msg = link.to_main.get_nowait()
-                    print(msg)
                     if isinstance(msg, Stop):
                         self._quit = True
                         print("main received Stop")
+
+                    elif isinstance(msg, TimeSignal):
+                        self.scheduler_time[msg.confirmation] = msg.timestamp
+                        print(msg)
 
                     elif isinstance(msg, maslite.AgentMessage):
                         link_name = self.agents[msg.r]
@@ -356,7 +380,8 @@ def test_multiprocessing():
 
         a1.put(lu, leading_edge)
 
-        main.run()
+        main.run(timeout=300)
+        print("!")
 
 def test_time_resolution():
     """ test proves that time progresses correctly. """
