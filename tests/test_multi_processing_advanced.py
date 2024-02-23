@@ -1,3 +1,4 @@
+from math import inf
 import maslite
 import queue
 import multiprocessing
@@ -8,14 +9,17 @@ import platform
 default_context = "spawn" if platform.system() != 'Linux' else "fork"
 
 class Stop:
+    ids = count(start=1)
     """ a simple stop signal."""
+    def __init__(self) -> None:
+        self.id = next(self.ids)
 
 class Link:
     """ scaffolding to keep queues and subprocess together """
-    def __init__(self,name, ctx, speed) -> None:
+    def __init__(self,name, ctx, global_time) -> None:
         self.to_main = ctx.Queue()
         self.to_sub_proc = ctx.Queue()
-        self.sub_proc = SubProc(ctx=ctx, mq_to_main=self.to_main, mq_to_self=self.to_sub_proc, name=name, speed=speed)
+        self.sub_proc = SubProc(ctx=ctx, mq_to_main=self.to_main, mq_to_self=self.to_sub_proc, global_time=global_time, name=name)
     def start(self):
         self.sub_proc.start()
     def is_alive(self):
@@ -82,8 +86,9 @@ class Conveyor(maslite.Agent):
         self.lu = None
 
     def update(self):
+        assert isinstance(self._clock, RemoteControlledClock)
         for msg in self.inbox:
-            print(msg)
+            print(f"Time: {self.time}: Message: {msg}")
             ops = self.operations.get(msg.topic)
             ops(msg)
         self.inbox.clear()
@@ -95,7 +100,7 @@ class Conveyor(maslite.Agent):
     
     def transfer_acceptance(self,msg):
         assert isinstance(msg, TransferAcceptance)
-        self.send(Transfer(self.uuid, r=msg.sender, obj=self.lu))
+        self.send(Transfer(s=self.uuid, r=msg.sender, obj=self.lu))
         self.lu = None
     
     def transfer(self, msg):
@@ -124,50 +129,89 @@ class RemoteControlledClock(maslite.Clock):
     A clock that is synchronized across all processes
     by being remote controlled by MPmain
     """
-    def __init__(self, scheduler_api, speed=1.0):
+    def __init__(self, scheduler_api, global_time):
         super().__init__(scheduler_api)
-        assert isinstance(speed,float)
-        self.speed = speed
+        scheduler_api.clock = self
         self._time = 0.0
+        self.global_time = global_time
 
     def tick(self, limit=None):
-        pass
+        # local time only updates at `tick` to prevent that 
+        # individual agents experience different timestamps 
+        # during the same update cycle.
+        self._time = self.global_time.value
 
+
+# Here I'm overriding the default maslite.Scheduler to 
+# 1. Add the remote controlled clock, 
+# 2. Add the message queue to return messages to MPmain
+# 3. Patch the method process mail queue, so that messages
+#    to agents not governed by the local scheduler are sent
+#    to MPmain for redistribution. 
 
 class Scheduler(maslite.Scheduler):
-    def __init__(self, logger=None, mq_to_main=None, speed=1.0):
-        super().__init__(logger, real_time=False)
-        self.clock = RemoteControlledClock(scheduler_api=self, speed=speed)
+    def __init__(self, logger=None, mq_to_main=None, mq_to_self=None):
+        super().__init__(logger)
         self.mq_to_main = mq_to_main
+        self.mq_to_self = mq_to_self
+        self.clock = None  # we need to set the remote controlled clock!
 
     def process_mail_queue(self):  # -- OVERRIDE
-        # return super().process_mail_queue()
+        self.process_inter_proc_mail()
+
         for msg in self.mail_queue:
             print(msg)
             assert isinstance(msg, maslite.AgentMessage)
-            recipients = self.mailing_lists.get_mail_recipients(message=msg)
-            if recipients:  # it's a local message
-                self.send_to_recipients(msg=msg, recipients=recipients)
-            else:  # it's an inter proc message
-                self.mq_to_main.to_main.put(msg)
+            
+            if msg.direct:
+                if msg.receiver in self.agents:
+                    self.send_to_recipients(msg=msg, recipients=[msg.receiver])
+                else:  # it's an inter proc message
+                    self.mq_to_main.put(msg)
+            else:
+                recipients = self.mailing_lists.get_mail_recipients(message=msg)
+                locals = [r for r in recipients if r in self.agents]
+                if locals:
+                    self.send_to_recipients(msg=msg, recipients=locals)
+                else:
+                    pass  # global subscription is not allowed.                    
+            
         self.mail_queue.clear()
+    
+    def process_inter_proc_mail(self):
+        while not self._quit:
+            try:
+                msg = self.mq_to_self.get_nowait()
+
+                if isinstance(msg, maslite.AgentMessage):
+                    self.scheduler.mail_queue.append(msg)
+
+                elif isinstance(msg, Stop):
+                    print(f"received stop signal {msg.id}")
+                    self._quit = True
+                    break
+
+                else:
+                    raise Exception(f"{msg}")
+            except queue.Empty:
+                return
 
 
 class SubProc:  # Partition of the the simulation.
     def __init__(self, ctx:BaseContext, 
                  mq_to_main:multiprocessing.Queue,
                  mq_to_self:multiprocessing.Queue,
-                 speed: float, 
+                 global_time,
                  name: str) -> None:
         self.ctx = ctx
         self.exit = ctx.Event()
         self.mq_to_main = mq_to_main
         self.mq_to_self = mq_to_self
-        self.scheduler = Scheduler(speed=speed, mq_to_main=mq_to_main)
+        self.scheduler = Scheduler(mq_to_main=mq_to_main, mq_to_self=mq_to_self)
+        self.clock = RemoteControlledClock(self.scheduler, global_time=global_time)
         self.process = ctx.Process(group=None, target=self.run, name=name, daemon=False)
         self.name = name
         self._quit: bool = False
-        self._new_timestamp = False
 
     def start(self):
         print("starting")
@@ -183,43 +227,19 @@ class SubProc:  # Partition of the the simulation.
     def add(self, agent):
         print(f"adding agent {agent.uuid}")
         self.scheduler.add(agent)
-
-    def process_inter_proc_mail(self):
-        while not self._quit:
-            try:
-                msg = self.mq_to_self.get_nowait()
-                if isinstance(msg, TimeSignal):
-                    # the schedulers clock is updated with the 
-                    # global time from the main process.
-                    self._new_timestamp = True
-                    self.scheduler.clock._time = msg.timestamp
-
-                elif isinstance(msg, maslite.AgentMessage):
-                    self.scheduler.mail_queue.append(msg)
-
-                elif isinstance(msg, Stop):
-                    print(f"{self.name} received stop signal")
-                    self._quit = True
-                    self.exit.set()
-                    break
-
-                else:
-                    raise Exception(f"{msg}")
-            except queue.Empty:
-                return
         
     def run(self):
-        while not self._quit:
-            self.process_inter_proc_mail()
-            self.scheduler.run()
-            # confirm to main that the current clock cycle has been completed.
-            if self._new_timestamp:
-                self.mq_to_main.put(TimeSignal(self.scheduler.clock.time, self.name))
-                self._new_timestamp = False
+        self.scheduler.clock.set_alarm(10_000, Transfer(1,2,3), False)
+        self.scheduler.run()
+        # when the scheduler is done running, we
+        # need to stop the sub process:
+        self.exit.set()
 
 
-class SimClock:
+class SimClock:  # MPmains clock for all partitions.
     def __init__(self,speed) -> None:
+        if not speed > 0:
+            raise ValueError("negative speed? {speed}")
         self.start_time = -1
         self.speed = speed 
         self.wall_time = 0.0
@@ -228,9 +248,13 @@ class SimClock:
         now = self.wall_time = monotonic()
         if self.start_time == -1:
             self.start_time = now
-        return self.start_time + (now-self.start_time)*self.speed
+        # return self.start_time + (now-self.start_time)*self.speed
+        return (now-self.start_time)*self.speed
+    def __str__(self) -> str:
+        return f"Wall: {self.wall_time}: Sim:{self.now}"
+    def __repr__(self) -> str:
+        return self.__str__()
     
-
 class MPmain:
     """ The main process for inter-process message exchange """
     def __init__(self, speed=1.0, context=default_context) -> None:
@@ -241,10 +265,8 @@ class MPmain:
         self._quit = False
 
         # time keeping variables.
-        self.speed = speed
         self.clock = SimClock(speed=speed)
-        self.scheduler_time = {}
-        self.last_timestamp = 0.0
+        self.global_time = self._ctx.Value('d', 0.0)  # shared multi proc value.
 
     @property
     def time(self):
@@ -258,7 +280,7 @@ class MPmain:
 
     def new_partition(self):
         name = str(len(self.schedulers)+1)
-        link = Link(name, ctx=self._ctx,speed=self.speed)  # communication link between mpmain and a scheduler.
+        link = Link(name, ctx=self._ctx, global_time=self.global_time)  # communication link between mpmain and a scheduler.
         self.schedulers[name] = link
         return link.sub_proc
     
@@ -299,25 +321,19 @@ class MPmain:
                 _ = link.to_sub_proc.get_nowait()
         print(f"all {len(self.schedulers)} schedulers stopped")
 
-    def run(self, timeout=3):
+    def run(self, timeout=10):
         self._start()
         try:
             while not self._quit:
                 if process_time() > timeout:
                     return
-                self.process_mail_queue()
+                self.global_time.value = self.clock.now  # update time for all subprocs
+                self.process_inter_proc_mail()
+
         except KeyboardInterrupt:
             pass
 
-    def process_mail_queue(self):
-        if all(ts == self.last_timestamp for ts in self.scheduler_time.values()):
-
-            self.last_timestamp = now = self.time # record the time.
-            self.scheduler_time[-1] = now
-            for name, link in self.schedulers.items():
-                # main sends the time to all sub procs.
-                link.to_sub_proc.put(TimeSignal(now))
-
+    def process_inter_proc_mail(self):
         for name, link in self.schedulers.items():
             assert isinstance(link, Link)
 
@@ -328,12 +344,10 @@ class MPmain:
                         self._quit = True
                         print("main received Stop")
 
-                    elif isinstance(msg, TimeSignal):
-                        self.scheduler_time[msg.confirmation] = msg.timestamp
-                        print(msg)
-
                     elif isinstance(msg, maslite.AgentMessage):
-                        link_name = self.agents[msg.r]
+                        if not msg.direct:
+                            raise ValueError("Inter proc subscription is not allowed.")
+                        link_name = self.agents[msg.receiver]
                         _link = self.schedulers[link_name]
                         assert isinstance(_link,Link)
                         _link.to_sub_proc.put(msg)
@@ -380,7 +394,7 @@ def test_multiprocessing():
 
         a1.put(lu, leading_edge)
 
-        main.run(timeout=300)
+        main.run(timeout=50)
         print("!")
 
 def test_time_resolution():
