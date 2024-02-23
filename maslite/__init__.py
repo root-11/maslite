@@ -687,7 +687,6 @@ class Scheduler(object):
         self.agents = dict()
         self.needs_update = dict()
         self.has_keep_awake = dict()
-        self._must_run_until_alarm_expires = False
 
         self._quit = False
         self._operating_frequency = 1000
