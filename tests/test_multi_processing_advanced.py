@@ -13,6 +13,8 @@ class Stop:
     """ a simple stop signal."""
     def __init__(self) -> None:
         self.id = next(self.ids)
+    def __str__(self) -> str:
+        return "Stop signal"
 
 class Link:
     """ scaffolding to keep queues and subprocess together """
@@ -40,10 +42,10 @@ class LogisticUnit:
         self.route = route
         self.length = 500 #mm
     def next_agent(self, current_agent):
-        ix = self.route.index(current_agent)
-        if ix == len(self.route):
+        if self.route[-1] == current_agent:
             return None
         else:
+            ix = self.route.index(current_agent)
             return self.route[ix+1]
 
     def __str__(self) -> str:
@@ -52,25 +54,19 @@ class LogisticUnit:
 class TransferNotification(maslite.AgentMessage):
     def __init__(self, s, r):
         super().__init__(sender=s,receiver=r, direct=True)
-
+    def __repr__(self) -> str:
+        return super().__str__()
 class TransferAcceptance(maslite.AgentMessage):
     def __init__(self, s, r):
         super().__init__(sender=s,receiver=r, direct=True)
-
+    def __repr__(self) -> str:
+        return super().__str__()
 class Transfer(maslite.AgentMessage):
     def __init__(self, s, r, obj):
         super().__init__(sender=s,receiver=r, direct=True)
         self.obj = obj
-
-class TimeSignal:
-    def __init__(self, timestamp, confirmation=None):
-        self.timestamp = timestamp
-        self.confirmation = confirmation
-    def __str__(self) -> str:
-        if not self.confirmation:
-            return f"Setting time: {self.timestamp}"
-        return f"Time set at {self.confirmation}: {self.timestamp}"
-
+    def __repr__(self) -> str:
+        return super().__str__()
 
 class Conveyor(maslite.Agent):
     def __init__(self, id) -> None:
@@ -88,7 +84,7 @@ class Conveyor(maslite.Agent):
     def update(self):
         assert isinstance(self._clock, RemoteControlledClock)
         for msg in self.inbox:
-            print(f"Time: {self.time}: Message: {msg}")
+            print(f"{self.time:.4f}:Agent({self.uuid}): got: {msg}")
             ops = self.operations.get(msg.topic)
             ops(msg)
         self.inbox.clear()
@@ -97,11 +93,12 @@ class Conveyor(maslite.Agent):
         assert isinstance(msg, TransferNotification)
         # all conveyors are operating at the same speed, so I spare the math.
         self.send(TransferAcceptance(self.uuid, r=msg.sender))
-    
+        print(f"{self.time:.4f}:Agent({self.uuid}) sending transfer acceptance to {msg.sender}")
     def transfer_acceptance(self,msg):
         assert isinstance(msg, TransferAcceptance)
         self.send(Transfer(s=self.uuid, r=msg.sender, obj=self.lu))
         self.lu = None
+        print(f"{self.time:.4f}:Agent({self.uuid}) sending LU to {msg.sender}")
     
     def transfer(self, msg):
         assert isinstance(msg, Transfer)
@@ -109,7 +106,7 @@ class Conveyor(maslite.Agent):
         self.put(lu,leading_edge=0)
 
     def put(self, lu, leading_edge):
-        print(f"{self.uuid}: LU received")
+        print(f"{self.time:.4f}:Agent({self.uuid}): LU received")
         assert isinstance(lu, LogisticUnit)
         self.lu = lu
         
@@ -117,9 +114,10 @@ class Conveyor(maslite.Agent):
 
         next_agent_on_route = lu.next_agent(self.uuid)
         if next_agent_on_route is None:
-            print(f"{self.uuid}: LU arrived at destination: {lu}") 
+            print(f"{self.time:.4f}:Agent({self.uuid}): LU arrived at destination: {lu}") 
+            self._scheduler_api.stop()
         else:
-            print(f"{self.uuid}: set to transfer LU in {zzz} seconds")
+            print(f"{self.time:.4f}:Agent({self.uuid}): set to transfer LU in {zzz} seconds")
             tn = TransferNotification(s=self, r=next_agent_on_route)
             self.set_alarm(zzz, tn)
 
@@ -150,23 +148,30 @@ class RemoteControlledClock(maslite.Clock):
 #    to MPmain for redistribution. 
 
 class Scheduler(maslite.Scheduler):
+    idx = count(start=1)
     def __init__(self, logger=None, mq_to_main=None, mq_to_self=None):
         super().__init__(logger)
         self.mq_to_main = mq_to_main
         self.mq_to_self = mq_to_self
         self.clock = None  # we need to set the remote controlled clock!
+        self.name = next(self.idx)
+        self.mail_queue = []
+
+    def stop(self):
+        self.mq_to_main.put(Stop())
 
     def process_mail_queue(self):  # -- OVERRIDE
         self.process_inter_proc_mail()
 
         for msg in self.mail_queue:
-            print(msg)
             assert isinstance(msg, maslite.AgentMessage)
             
             if msg.direct:
                 if msg.receiver in self.agents:
+                    print(f"{self.clock.time:.4f}:Scheduler({self.name}) sending local {msg}")
                     self.send_to_recipients(msg=msg, recipients=[msg.receiver])
                 else:  # it's an inter proc message
+                    print(f"{self.clock.time:.4f}:Scheduler{self.name} sending inter proc {msg}")
                     self.mq_to_main.put(msg)
             else:
                 recipients = self.mailing_lists.get_mail_recipients(message=msg)
@@ -182,12 +187,12 @@ class Scheduler(maslite.Scheduler):
         while not self._quit:
             try:
                 msg = self.mq_to_self.get_nowait()
-
+                print(f"{self.clock.time:.4f}:Scheduler({self.name}) interproc recieved {msg}")
                 if isinstance(msg, maslite.AgentMessage):
-                    self.scheduler.mail_queue.append(msg)
+                    self.mail_queue.append(msg)
 
                 elif isinstance(msg, Stop):
-                    print(f"received stop signal {msg.id}")
+                    print(f"{self.clock.time:.4f}:Scheduler({self.name}) received stop signal {msg.id}")
                     self._quit = True
                     break
 
@@ -195,6 +200,88 @@ class Scheduler(maslite.Scheduler):
                     raise Exception(f"{msg}")
             except queue.Empty:
                 return
+
+    # custom stripped down version on run.
+    def run(self, seconds=None, iterations=None, pause_if_idle=True, clear_alarms_at_end=True):
+        """ The main 'run' operation of the Scheduler.
+
+        :param seconds: float, int, None: optional number of seconds to run. This is either real-time or simulation-time
+        seconds depending on which type of clock is being used.
+        :param iterations: float, int, None: feature to let the scheduler run for
+        N (`iterations`) updates before pausing.
+        :param pause_if_idle: boolean: default=False: If no new messages are exchanged
+        the scheduler's clock will tick along as any other real-time system.
+        If pause_if_idle is set to True, the scheduler will pause once the message queue
+        is idle.
+        :param clear_alarms_at_end: boolean: deletes any alarms if paused.
+
+        Depending on which of 'seconds' or 'iterations' occurs first, the simulation
+        will be paused.
+        """
+        # start_time = None
+        # if isinstance(seconds, (int, float)) and seconds > 0:
+        #     start_time = self.clock.time
+
+        # if seconds:
+        #     seconds += start_time
+
+        # iterations_to_halt = None
+        # if isinstance(iterations, int) and iterations > 0:
+        #     iterations_to_halt = abs(iterations)
+
+        # assert isinstance(pause_if_idle, bool)
+        # assert isinstance(clear_alarms_at_end, bool)
+
+        # check all agents for messages (in case that someone on the outside has added messages).
+        for agent in self.agents.values():
+            if agent.inbox or agent.keep_awake:
+                self.needs_update[agent.uuid] = True
+        self.process_mail_queue()
+
+        # The main loop of the scheduler:
+        self._quit = False
+        while not self._quit:  # _quit is set by method self.pause() and can be called by any agent.
+
+            # update the agents. process.
+            self.needs_update.update(self.has_keep_awake)
+            for uuid in self.needs_update:
+                agent = self.agents[uuid]
+                agent.update()
+                if agent.keep_awake:
+                    self.has_keep_awake[uuid] = True
+                elif uuid in self.has_keep_awake:
+                    del self.has_keep_awake[uuid]
+            self.needs_update.clear()
+
+            # check any timed alarms.
+            self.clock.tick(limit=seconds)
+            self.clock.release_alarm_messages()
+
+            # distribute messages or sleep.
+            # no_messages = len(self.mail_queue) == 0
+            # if self.mail_queue:
+            self.process_mail_queue()
+
+            # determine whether to stop:
+            # if start_time is not None:
+            #     if self.clock.time >= seconds:
+            #         self._quit = True
+
+            # if iterations_to_halt is not None:
+            #     iterations_to_halt -= 1
+            #     if iterations_to_halt <= 0:
+            #         self._quit = True
+
+            # if no_messages:
+            #     if self.clock.time < self.clock.last_required_alarm:
+            #         time.sleep(1 / self._operating_frequency)
+            #     elif pause_if_idle:
+            #         self._quit = True
+            #     else:
+            #         pass  # nothing to do.
+
+        # if clear_alarms_at_end:
+        #     self.clock.clear_alarms()
 
 
 class SubProc:  # Partition of the the simulation.
@@ -225,11 +312,11 @@ class SubProc:  # Partition of the the simulation.
         return self.process.exitcode
 
     def add(self, agent):
-        print(f"adding agent {agent.uuid}")
+        print(f"{self.clock.time:.4f}:adding agent {agent.uuid}")
         self.scheduler.add(agent)
         
     def run(self):
-        self.scheduler.clock.set_alarm(10_000, Transfer(1,2,3), False)
+        # self.scheduler.clock.set_alarm(1_000_000, Transfer(1,2,3), False)
         self.scheduler.run()
         # when the scheduler is done running, we
         # need to stop the sub process:
@@ -277,6 +364,9 @@ class MPmain:
 
     def __exit__(self, exc_type, exc_val, exc_tb):  # signature requires these, though I don't use them.
         self._stop()
+        if exc_tb:
+            print(exc_tb)
+            raise exc_type(exc_val)
 
     def new_partition(self):
         name = str(len(self.schedulers)+1)
@@ -285,6 +375,7 @@ class MPmain:
         return link.sub_proc
     
     def _start(self):
+        print(f"{self.clock.now:.4f}: Starting sub-processes")
         procs = []
         for name, link in self.schedulers.items():
             assert isinstance(link, Link)
@@ -293,21 +384,22 @@ class MPmain:
                 self.agents[id] = name 
 
             link.start()
-            print(f"{name} starting")
+            # print(f"{name} starting")
             procs.append(link)
 
         while not all(p.is_alive() is True for p in procs):
             sleep(0.01)  # wait for the OS to launch the procs.
-        print(f"all {len(self.schedulers)} started")
+        print(f"{self.clock.now:.4f}: All {len(self.schedulers)} started")
 
     def _stop(self):
+        print(f"{self.clock.now:.4f}: Stopping sub-processes")
         procs = []
         for link in self.schedulers.values():
             assert isinstance(link,Link)
 
             link.to_sub_proc.put(Stop())  # send stop signal.
             procs.append(link)
-            print(f"{link.sub_proc.name} stopping")
+            # print(f"{link.sub_proc.name} stopping")
         while any(p.is_alive() for p in procs):
             sleep(0.01)  # wait until all subprocesses have stopped.
 
@@ -319,7 +411,7 @@ class MPmain:
                 _ = link.to_main.get_nowait()
             while not link.to_sub_proc.empty:
                 _ = link.to_sub_proc.get_nowait()
-        print(f"all {len(self.schedulers)} schedulers stopped")
+        print(f"{self.clock.now:.4f}: All {len(self.schedulers)} schedulers stopped")
 
     def run(self, timeout=10):
         self._start()
@@ -340,9 +432,10 @@ class MPmain:
             for _ in range(link.to_main.qsize()):
                 try:
                     msg = link.to_main.get_nowait()
+                    print(f"{self.clock.now:.4f}:MPmain recieved {msg}")
                     if isinstance(msg, Stop):
                         self._quit = True
-                        print("main received Stop")
+                        print(f"{self.clock.now:.4f}: MPmain received Stop")
 
                     elif isinstance(msg, maslite.AgentMessage):
                         if not msg.direct:
@@ -395,7 +488,8 @@ def test_multiprocessing():
         a1.put(lu, leading_edge)
 
         main.run(timeout=50)
-        print("!")
+    #     print("test complete. Initiating shutdown.")
+    # print("shutdown complete.")
 
 def test_time_resolution():
     """ test proves that time progresses correctly. """
