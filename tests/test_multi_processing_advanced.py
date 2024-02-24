@@ -497,12 +497,11 @@ if __name__ == "__main__":
     # --- completed intra proc "send" of LU
     #     0.0148 seconds @ 20x speed
     #     0.0010 seconds @  1x speed.
-    #     timedrift is marginal.
+    # === timedrift is marginal.
 
     # 0.8770:Agent(2): set to transfer LU in 2.0 seconds
 
     # --- starting inter proc "send" of LU
-
     # 2.8771:Scheduler1 sending inter proc 2 -> 3 TransferNotification
     # 3.0506:Scheduler(2) interproc recieved 2 -> 3 TransferNotification
     # 3.0506:Scheduler(2) sending local 2 -> 3 TransferNotification
@@ -522,9 +521,13 @@ if __name__ == "__main__":
     # --- completed inter proc "send" of LU in:
     #     0.0489 seconds @ 20x speed 
     #     0.0196 seconds @  1x speed.
-    #     The conclusion is that there is some monotonic time drift.
+    # === time drift is visible.
+
 
     # 3.7260:Agent(3): set to transfer LU in 2.0 seconds
+
+    # --- starting intra proc "send" of LU
+
     # 5.7260:Scheduler(2) sending local 3 -> 4 TransferNotification
     # 5.7260:Agent(4): got: 3 -> 4 TransferNotification
     # 5.7260:Agent(4) sending transfer acceptance to 3
@@ -534,6 +537,12 @@ if __name__ == "__main__":
     # 5.7460:Scheduler(2) sending local 3 -> 4 Transfer
     # 5.7460:Agent(4): got: 3 -> 4 Transfer
     # 5.7460:Agent(4): LU received
+
+    # --- completed intra proc "send" of LU
+    #     0.0200 seconds @ 20x speed
+    #     0.0005 seconds @  1x speed.
+    # === timedrift is marginal.
+
     # 5.7460:Agent(4): LU arrived at destination: LogisticUnit:(1): Route: [1, 2, 3, 4]
     # 5.7896:MPmain received Stop
     # 5.7917:Stopping sub-processes
