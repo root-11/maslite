@@ -14,4 +14,4 @@ MASlite.egg-info/*
 *.vscode
 
 # environments
-.env/
+.env*
