@@ -47,7 +47,6 @@ class LogisticUnit:
         else:
             ix = self.route.index(current_agent)
             return self.route[ix+1]
-
     def __str__(self) -> str:
         return f"LogisticUnit:({self.id}): Route: {self.route}"
 
@@ -192,7 +191,7 @@ class Scheduler(maslite.Scheduler):
                     self.mail_queue.append(msg)
 
                 elif isinstance(msg, Stop):
-                    print(f"{self.clock.time:.4f}:Scheduler({self.name}) received stop signal {msg.id}")
+                    print(f"{self.clock.time:.4f}:Scheduler({self.name}) received stop signal {msg}")
                     self._quit = True
                     break
 
@@ -204,34 +203,7 @@ class Scheduler(maslite.Scheduler):
     # custom stripped down version on run.
     def run(self, seconds=None, iterations=None, pause_if_idle=True, clear_alarms_at_end=True):
         """ The main 'run' operation of the Scheduler.
-
-        :param seconds: float, int, None: optional number of seconds to run. This is either real-time or simulation-time
-        seconds depending on which type of clock is being used.
-        :param iterations: float, int, None: feature to let the scheduler run for
-        N (`iterations`) updates before pausing.
-        :param pause_if_idle: boolean: default=False: If no new messages are exchanged
-        the scheduler's clock will tick along as any other real-time system.
-        If pause_if_idle is set to True, the scheduler will pause once the message queue
-        is idle.
-        :param clear_alarms_at_end: boolean: deletes any alarms if paused.
-
-        Depending on which of 'seconds' or 'iterations' occurs first, the simulation
-        will be paused.
         """
-        # start_time = None
-        # if isinstance(seconds, (int, float)) and seconds > 0:
-        #     start_time = self.clock.time
-
-        # if seconds:
-        #     seconds += start_time
-
-        # iterations_to_halt = None
-        # if isinstance(iterations, int) and iterations > 0:
-        #     iterations_to_halt = abs(iterations)
-
-        # assert isinstance(pause_if_idle, bool)
-        # assert isinstance(clear_alarms_at_end, bool)
-
         # check all agents for messages (in case that someone on the outside has added messages).
         for agent in self.agents.values():
             if agent.inbox or agent.keep_awake:
@@ -254,34 +226,10 @@ class Scheduler(maslite.Scheduler):
             self.needs_update.clear()
 
             # check any timed alarms.
-            self.clock.tick(limit=seconds)
+            self.clock.tick()
             self.clock.release_alarm_messages()
 
-            # distribute messages or sleep.
-            # no_messages = len(self.mail_queue) == 0
-            # if self.mail_queue:
             self.process_mail_queue()
-
-            # determine whether to stop:
-            # if start_time is not None:
-            #     if self.clock.time >= seconds:
-            #         self._quit = True
-
-            # if iterations_to_halt is not None:
-            #     iterations_to_halt -= 1
-            #     if iterations_to_halt <= 0:
-            #         self._quit = True
-
-            # if no_messages:
-            #     if self.clock.time < self.clock.last_required_alarm:
-            #         time.sleep(1 / self._operating_frequency)
-            #     elif pause_if_idle:
-            #         self._quit = True
-            #     else:
-            #         pass  # nothing to do.
-
-        # if clear_alarms_at_end:
-        #     self.clock.clear_alarms()
 
 
 class SubProc:  # Partition of the the simulation.
@@ -301,7 +249,7 @@ class SubProc:  # Partition of the the simulation.
         self._quit: bool = False
 
     def start(self):
-        print("starting")
+        print(f"{self.clock.time:.4f}:Scheduler({self.name}) starting")
         self.process.start()
 
     def is_alive(self):
@@ -312,7 +260,6 @@ class SubProc:  # Partition of the the simulation.
         return self.process.exitcode
 
     def add(self, agent):
-        print(f"{self.clock.time:.4f}:adding agent {agent.uuid}")
         self.scheduler.add(agent)
         
     def run(self):
@@ -335,7 +282,6 @@ class SimClock:  # MPmains clock for all partitions.
         now = self.wall_time = monotonic()
         if self.start_time == -1:
             self.start_time = now
-        # return self.start_time + (now-self.start_time)*self.speed
         return (now-self.start_time)*self.speed
     def __str__(self) -> str:
         return f"Wall: {self.wall_time}: Sim:{self.now}"
@@ -384,22 +330,20 @@ class MPmain:
                 self.agents[id] = name 
 
             link.start()
-            # print(f"{name} starting")
             procs.append(link)
 
         while not all(p.is_alive() is True for p in procs):
             sleep(0.01)  # wait for the OS to launch the procs.
-        print(f"{self.clock.now:.4f}: All {len(self.schedulers)} started")
+        print(f"{self.clock.now:.4f}:All {len(self.schedulers)} started")
 
     def _stop(self):
-        print(f"{self.clock.now:.4f}: Stopping sub-processes")
+        print(f"{self.clock.now:.4f}:Stopping sub-processes")
         procs = []
         for link in self.schedulers.values():
             assert isinstance(link,Link)
 
             link.to_sub_proc.put(Stop())  # send stop signal.
             procs.append(link)
-            # print(f"{link.sub_proc.name} stopping")
         while any(p.is_alive() for p in procs):
             sleep(0.01)  # wait until all subprocesses have stopped.
 
@@ -432,10 +376,10 @@ class MPmain:
             for _ in range(link.to_main.qsize()):
                 try:
                     msg = link.to_main.get_nowait()
-                    print(f"{self.clock.now:.4f}:MPmain recieved {msg}")
+                    # print(f"{self.clock.now:.4f}:MPmain recieved {msg}")
                     if isinstance(msg, Stop):
                         self._quit = True
-                        print(f"{self.clock.now:.4f}: MPmain received Stop")
+                        print(f"{self.clock.now:.4f}:MPmain received Stop")
 
                     elif isinstance(msg, maslite.AgentMessage):
                         if not msg.direct:
@@ -466,7 +410,7 @@ def test_multiprocessing():
     illustrating that the 2 simulations can be fully 
     synchronised using nothing but a shared clock.
     """
-    with MPmain(speed=100.0) as main:
+    with MPmain(speed=1.0) as main:
     
         a1 = Conveyor(1)
         a2 = Conveyor(2)
@@ -488,8 +432,7 @@ def test_multiprocessing():
         a1.put(lu, leading_edge)
 
         main.run(timeout=50)
-    #     print("test complete. Initiating shutdown.")
-    # print("shutdown complete.")
+
 
 def test_time_resolution():
     """ test proves that time progresses correctly. """
@@ -523,25 +466,81 @@ def test_time_resolution():
 
 if __name__ == "__main__":
     test_multiprocessing()
-    # output:
-    # -------------------------------
-    # Registering agent Conveyor 1
-    # adding agent 2
+    # platform linux -- Python 3.10.13[pypy-7.3.15-final], pytest-8.0.1, pluggy-1.4.0 -- /home/bjorn/github/maslite/.env-pypy3/bin/python3
+    # cachedir: .pytest_cache
+    # rootdir: /home/bjorn/github/maslite
+    # collected 2 items                                                                                                                                                              
+
+    # tests/test_multi_processing_advanced.py::test_multiprocessing Registering agent Conveyor 1
     # Registering agent Conveyor 2
-    # adding agent 3
     # Registering agent Conveyor 3
-    # adding agent 4
     # Registering agent Conveyor 4
-    # starting
-    # 1 starting
-    # starting
-    # 2 starting
-    # all 2 started
-    #
-    # <<  TODO agents messages
-    #
-    # 1 stopping
-    # 2 stopping
-    # 2 received stop signal
-    # 1 received stop signal
-    # all 2 schedulers stopped
+    # 0.0000:Agent(1): LU received
+    # 0.0000:Agent(1): set to transfer LU in 0.75 seconds
+    # 0.0000: Starting sub-processes
+    # 0.0000:Scheduler(1) starting
+    # 0.0000:Scheduler(2) starting
+    # 0.0982:All 2 started
+
+    # --- starting intra proc "send" of LU
+
+    # 0.8622:Scheduler(1) sending local 1 -> 2 TransferNotification
+    # 0.8622:Agent(2): got: 1 -> 2 TransferNotification
+    # 0.8622:Agent(2) sending transfer acceptance to 1
+    # 0.8726:Scheduler(1) sending local 2 -> 1 TransferAcceptance
+    # 0.8726:Agent(1): got: 2 -> 1 TransferAcceptance
+    # 0.8726:Agent(1) sending LU to 2
+    # 0.8770:Scheduler(1) sending local 1 -> 2 Transfer
+    # 0.8770:Agent(2): got: 1 -> 2 Transfer
+    # 0.8770:Agent(2): LU received
+
+    # --- completed intra proc "send" of LU
+    #     0.0148 seconds @ 20x speed
+    #     0.0010 seconds @  1x speed.
+    #     timedrift is marginal.
+
+    # 0.8770:Agent(2): set to transfer LU in 2.0 seconds
+
+    # --- starting inter proc "send" of LU
+
+    # 2.8771:Scheduler1 sending inter proc 2 -> 3 TransferNotification
+    # 3.0506:Scheduler(2) interproc recieved 2 -> 3 TransferNotification
+    # 3.0506:Scheduler(2) sending local 2 -> 3 TransferNotification
+    # 3.0506:Agent(3): got: 2 -> 3 TransferNotification
+    # 3.0506:Agent(3) sending transfer acceptance to 2
+    # 3.0936:Scheduler2 sending inter proc 3 -> 2 TransferAcceptance
+    # 3.2079:Scheduler(1) interproc recieved 3 -> 2 TransferAcceptance
+    # 3.2079:Scheduler(1) sending local 3 -> 2 TransferAcceptance
+    # 3.2079:Agent(2): got: 3 -> 2 TransferAcceptance
+    # 3.2079:Agent(2) sending LU to 3
+    # 3.2354:Scheduler1 sending inter proc 2 -> 3 Transfer
+    # 3.7260:Scheduler(2) interproc recieved 2 -> 3 Transfer
+    # 3.7260:Scheduler(2) sending local 2 -> 3 Transfer
+    # 3.7260:Agent(3): got: 2 -> 3 Transfer
+    # 3.7260:Agent(3): LU received
+
+    # --- completed inter proc "send" of LU in:
+    #     0.0489 seconds @ 20x speed 
+    #     0.0196 seconds @  1x speed.
+    #     The conclusion is that there is some monotonic time drift.
+
+    # 3.7260:Agent(3): set to transfer LU in 2.0 seconds
+    # 5.7260:Scheduler(2) sending local 3 -> 4 TransferNotification
+    # 5.7260:Agent(4): got: 3 -> 4 TransferNotification
+    # 5.7260:Agent(4) sending transfer acceptance to 3
+    # 5.7390:Scheduler(2) sending local 4 -> 3 TransferAcceptance
+    # 5.7390:Agent(3): got: 4 -> 3 TransferAcceptance
+    # 5.7390:Agent(3) sending LU to 4
+    # 5.7460:Scheduler(2) sending local 3 -> 4 Transfer
+    # 5.7460:Agent(4): got: 3 -> 4 Transfer
+    # 5.7460:Agent(4): LU received
+    # 5.7460:Agent(4): LU arrived at destination: LogisticUnit:(1): Route: [1, 2, 3, 4]
+    # 5.7896:MPmain received Stop
+    # 5.7917:Stopping sub-processes
+    # 5.7776:Scheduler(1) interproc recieved Stop signal
+    # 5.7776:Scheduler(1) received stop signal Stop signal
+    # 5.7776:Scheduler(2) interproc recieved Stop signal
+    # 5.7776:Scheduler(2) received stop signal Stop signal
+    # 5.9999: All 2 schedulers stopped
+    # PASSED
+    # tests/test_multi_processing_advanced.py::test_time_resolution PASSED
