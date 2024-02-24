@@ -1,0 +1,59 @@
+0.0000:adding agent 2
+Registering agent Conveyor 2
+0.0000:adding agent 3
+Registering agent Conveyor 3
+0.0000:adding agent 4
+Registering agent Conveyor 4
+0.0000:Agent(1): LU received
+0.0000:Agent(1): set to transfer LU in 0.75 seconds
+0.0000: Starting sub-processes
+0.0000:Scheduler(1) starting
+0.0000:Scheduler(2) starting
+0.1288:All 2 started
+0.8670:Scheduler(1) sending local From -> To : 1 -> 2 Topic: TransferNotification Direct: True
+0.8670:Agent(2): got: From -> To : 1 -> 2 Topic: TransferNotification Direct: True
+0.8670:Agent(2) sending transfer acceptance to 1
+0.8763:Scheduler(1) sending local From -> To : 2 -> 1 Topic: TransferAcceptance Direct: True
+0.8763:Agent(1): got: From -> To : 2 -> 1 Topic: TransferAcceptance Direct: True
+0.8763:Agent(1) sending LU to 2
+0.8805:Scheduler(1) sending local From -> To : 1 -> 2 Topic: Transfer Direct: True
+0.8805:Agent(2): got: From -> To : 1 -> 2 Topic: Transfer Direct: True
+0.8805:Agent(2): LU received
+0.8805:Agent(2): set to transfer LU in 2.0 seconds
+2.8806:Scheduler1 sending inter proc From -> To : 2 -> 3 Topic: TransferNotification Direct: True
+2.9783:MPmain recieved From -> To : 2 -> 3 Topic: TransferNotification Direct: True
+3.0051:Scheduler(2) interproc recieved From -> To : 2 -> 3 Topic: TransferNotification Direct: True
+3.0051:Scheduler(2) sending local From -> To : 2 -> 3 Topic: TransferNotification Direct: True
+3.0051:Agent(3): got: From -> To : 2 -> 3 Topic: TransferNotification Direct: True
+3.0051:Agent(3) sending transfer acceptance to 2
+3.0580:Scheduler2 sending inter proc From -> To : 3 -> 2 Topic: TransferAcceptance Direct: True
+3.1274:MPmain recieved From -> To : 3 -> 2 Topic: TransferAcceptance Direct: True
+3.1424:Scheduler(1) interproc recieved From -> To : 3 -> 2 Topic: TransferAcceptance Direct: True
+3.1424:Scheduler(1) sending local From -> To : 3 -> 2 Topic: TransferAcceptance Direct: True
+3.1424:Agent(2): got: From -> To : 3 -> 2 Topic: TransferAcceptance Direct: True
+3.1424:Agent(2) sending LU to 3
+3.2614:Scheduler1 sending inter proc From -> To : 2 -> 3 Topic: Transfer Direct: True
+3.3364:MPmain recieved From -> To : 2 -> 3 Topic: Transfer Direct: True
+3.5891:Scheduler(2) interproc recieved From -> To : 2 -> 3 Topic: Transfer Direct: True
+3.5891:Scheduler(2) sending local From -> To : 2 -> 3 Topic: Transfer Direct: True
+3.5891:Agent(3): got: From -> To : 2 -> 3 Topic: Transfer Direct: True
+3.5891:Agent(3): LU received
+3.5891:Agent(3): set to transfer LU in 2.0 seconds
+5.5892:Scheduler(2) sending local From -> To : 3 -> 4 Topic: TransferNotification Direct: True
+5.5892:Agent(4): got: From -> To : 3 -> 4 Topic: TransferNotification Direct: True
+5.5892:Agent(4) sending transfer acceptance to 3
+5.6073:Scheduler(2) sending local From -> To : 4 -> 3 Topic: TransferAcceptance Direct: True
+5.6073:Agent(3): got: From -> To : 4 -> 3 Topic: TransferAcceptance Direct: True
+5.6073:Agent(3) sending LU to 4
+5.6162:Scheduler(2) sending local From -> To : 3 -> 4 Topic: Transfer Direct: True
+5.6162:Agent(4): got: From -> To : 3 -> 4 Topic: Transfer Direct: True
+5.6162:Agent(4): LU received
+5.6162:Agent(4): LU arrived at destination: LogisticUnit:(1): Route: [1, 2, 3, 4]
+5.6585:MPmain recieved Stop signal
+5.6606:MPmain received Stop
+5.6625:Stopping sub-processes
+5.6296:Scheduler(2) interproc recieved Stop signal
+5.6296:Scheduler(2) received stop signal 2
+5.6296:Scheduler(1) interproc recieved Stop signal
+5.6296:Scheduler(1) received stop signal 1
+5.8712: All 2 schedulers stopped
