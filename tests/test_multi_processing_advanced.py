@@ -285,7 +285,6 @@ class SubProc:  # Partition of the the simulation.
         self.scheduler.add(agent)
         
     def run(self):
-        # self.scheduler.clock.set_alarm(1_000_000, Transfer(1,2,3), False)
         self.scheduler.run()
         # when the scheduler is done running, we
         # need to stop the sub process:
