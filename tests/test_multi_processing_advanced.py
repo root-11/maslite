@@ -21,7 +21,15 @@ class Link:
     def __init__(self,name, ctx, global_time) -> None:
         self.to_main = ctx.Queue()
         self.to_sub_proc = ctx.Queue()
-        self.sub_proc = SubProc(ctx=ctx, mq_to_main=self.to_main, mq_to_self=self.to_sub_proc, global_time=global_time, name=name)
+        self.next_alarm = multiprocessing.Value('d', 0.0)
+        self.sub_proc = SubProc(
+            ctx=ctx, 
+            mq_to_main=self.to_main, 
+            mq_to_self=self.to_sub_proc, 
+            global_time=global_time,
+            next_alarm=self.next_alarm,
+            name=name)
+        
     def start(self):
         self.sub_proc.start()
     def is_alive(self):
@@ -126,11 +134,24 @@ class RemoteControlledClock(maslite.Clock):
     A clock that is synchronized across all processes
     by being remote controlled by MPmain
     """
-    def __init__(self, scheduler_api, global_time):
+    def __init__(self, scheduler_api, global_time, next_alarm):
         super().__init__(scheduler_api)
         scheduler_api.clock = self
         self._time = 0.0
         self.global_time = global_time
+        self.next_alarm = next_alarm
+
+    def set_alarm(self, delay, alarm_message, ignore_alarm_if_idle):
+        result =  super().set_alarm(delay, alarm_message, ignore_alarm_if_idle)
+        self.next_alarm.value = self.alarm_time[0]
+        return result
+
+    def release_alarm_messages(self):
+        super().release_alarm_messages()
+        if not self.alarm_time:
+            self.next_alarm.value = inf
+        else:
+            self.next_alarm.value = self.alarm_time[0]
 
     def tick(self, limit=None):
         # local time only updates at `tick` to prevent that 
@@ -237,13 +258,14 @@ class SubProc:  # Partition of the the simulation.
                  mq_to_main:multiprocessing.Queue,
                  mq_to_self:multiprocessing.Queue,
                  global_time,
+                 next_alarm,
                  name: str) -> None:
         self.ctx = ctx
         self.exit = ctx.Event()
         self.mq_to_main = mq_to_main
         self.mq_to_self = mq_to_self
         self.scheduler = Scheduler(mq_to_main=mq_to_main, mq_to_self=mq_to_self)
-        self.clock = RemoteControlledClock(self.scheduler, global_time=global_time)
+        self.clock = RemoteControlledClock(self.scheduler, global_time=global_time, next_alarm=next_alarm)
         self.process = ctx.Process(group=None, target=self.run, name=name, daemon=False)
         self.name = name
         self._quit: bool = False
@@ -269,28 +291,10 @@ class SubProc:  # Partition of the the simulation.
         # need to stop the sub process:
         self.exit.set()
 
-
-class SimClock:  # MPmains clock for all partitions.
-    def __init__(self,speed) -> None:
-        if not speed > 0:
-            raise ValueError("negative speed? {speed}")
-        self.start_time = -1
-        self.speed = speed 
-        self.wall_time = 0.0
-    @property
-    def now(self):
-        now = self.wall_time = monotonic()
-        if self.start_time == -1:
-            self.start_time = now
-        return (now-self.start_time)*self.speed
-    def __str__(self) -> str:
-        return f"Wall: {self.wall_time}: Sim:{self.now}"
-    def __repr__(self) -> str:
-        return self.__str__()
     
 class MPmain:
     """ The main process for inter-process message exchange """
-    def __init__(self, speed=1.0, context=default_context) -> None:
+    def __init__(self, context=default_context) -> None:
         self._ctx = multiprocessing.get_context(context)
         
         self.schedulers = {}
@@ -298,12 +302,12 @@ class MPmain:
         self._quit = False
 
         # time keeping variables.
-        self.clock = SimClock(speed=speed)
+        self.start_time = 0.0
         self.global_time = self._ctx.Value('d', 0.0)  # shared multi proc value.
 
     @property
     def time(self):
-        return self.clock.now
+        return self.clock.time
 
     def __enter__(self):
         return self
@@ -321,7 +325,8 @@ class MPmain:
         return link.sub_proc
     
     def _start(self):
-        print(f"{self.clock.now:.4f}: Starting sub-processes")
+        self.start_time = monotonic()
+        print(f"Starting sub-processes @ {self.start_time:.4f}")
         procs = []
         for name, link in self.schedulers.items():
             assert isinstance(link, Link)
@@ -334,10 +339,13 @@ class MPmain:
 
         while not all(p.is_alive() is True for p in procs):
             sleep(0.01)  # wait for the OS to launch the procs.
-        print(f"{self.clock.now:.4f}:All {len(self.schedulers)} started")
+        print(f"{len(self.schedulers)} started")
 
     def _stop(self):
-        print(f"{self.clock.now:.4f}:Stopping sub-processes")
+        now = monotonic()
+        wall_time = now-self.start_time
+        print(f"Stopping sub-processes @ {now:.4f} - duration: {wall_time:.4f}")
+        print(f"wall time: {wall_time} / sim time: {self.global_time.value} = {self.global_time.value/wall_time:.2f}X")
         procs = []
         for link in self.schedulers.values():
             assert isinstance(link,Link)
@@ -355,19 +363,30 @@ class MPmain:
                 _ = link.to_main.get_nowait()
             while not link.to_sub_proc.empty:
                 _ = link.to_sub_proc.get_nowait()
-        print(f"{self.clock.now:.4f}: All {len(self.schedulers)} schedulers stopped")
+        print(f"{len(self.schedulers)} schedulers stopped")
 
-    def run(self, timeout=10):
+    def run(self, timeout=5):
         self._start()
+        end = process_time() + timeout
         try:
             while not self._quit:
-                if process_time() > timeout:
+                if process_time() > end:
                     return
-                self.global_time.value = self.clock.now  # update time for all subprocs
                 self.process_inter_proc_mail()
+                self.check_time()
 
         except KeyboardInterrupt:
             pass
+
+    def check_time(self):
+        alarms = set()
+        for name, link in self.schedulers.items():
+            assert isinstance(link, Link)
+            alarms.add(link.next_alarm.value)
+        if min(alarms) == inf:
+            pass  # be patient whilst the sub's sort themselves out.
+        else:
+            self.global_time.value = min(alarms)
 
     def process_inter_proc_mail(self):
         for name, link in self.schedulers.items():
@@ -376,14 +395,13 @@ class MPmain:
             for _ in range(link.to_main.qsize()):
                 try:
                     msg = link.to_main.get_nowait()
-                    # print(f"{self.clock.now:.4f}:MPmain recieved {msg}")
                     if isinstance(msg, Stop):
                         self._quit = True
-                        print(f"{self.clock.now:.4f}:MPmain received Stop")
+                        print(f"MPmain received Stop")
 
                     elif isinstance(msg, maslite.AgentMessage):
-                        if not msg.direct:
-                            raise ValueError("Inter proc subscription is not allowed.")
+                        if not msg.direct: raise ValueError("Inter proc subscription is not allowed.")
+
                         link_name = self.agents[msg.receiver]
                         _link = self.schedulers[link_name]
                         assert isinstance(_link,Link)
@@ -410,7 +428,7 @@ def test_multiprocessing():
     illustrating that the 2 simulations can be fully 
     synchronised using nothing but a shared clock.
     """
-    with MPmain(speed=1.0) as main:
+    with MPmain() as main:
     
         a1 = Conveyor(1)
         a2 = Conveyor(2)
@@ -431,45 +449,18 @@ def test_multiprocessing():
 
         a1.put(lu, leading_edge)
 
-        main.run(timeout=50)
-
-
-def test_time_resolution():
-    """ test proves that time progresses correctly. """
-    sim_clock, wall_clock = [],[]
-    clock_speed = 10_000
-
-    sc = SimClock(clock_speed)
-    # after setting clock speed, we now run the clock for 100 steps.
-    for _ in range(100):
-        sim_now = sc.now
-        wall_now = sc.wall_time
-
-        wall_clock.append(wall_now)
-        sim_clock.append(sim_now)
-        # the sim time and wall clock time has now been recorded.
-    
-    # now we walk through each pair of values in the list of 
-    # sim_clock and wall_clock and measure the step size.
-    # by dividing the sim_step with wall_step, we should get the
-    # original clock speed back.
-    dtx = []
-    for ix in range(len(sim_clock)-1):
-        sim_step = sim_clock[ix+1] - sim_clock[ix]
-        wall_step = wall_clock[ix+1] - wall_clock[ix]
-        dtx.append(sim_step / wall_step)
-    assert set(dtx) == {clock_speed}
-    # The assertion above guarantees two things:
-    # 1. That the sim clock steps are of same size.
-    # 2. That the size is exactly the clock speed.
+        main.run(timeout=50000)
 
 
 if __name__ == "__main__":
     test_multiprocessing()
+
+    # (.env-pypy3) bjorn@e:~/github/maslite$ pytest tests/test_multi_processing_advanced.py -sv
+    # ================================================================== test session starts ==================================================================
     # platform linux -- Python 3.10.13[pypy-7.3.15-final], pytest-8.0.1, pluggy-1.4.0 -- /home/bjorn/github/maslite/.env-pypy3/bin/python3
     # cachedir: .pytest_cache
     # rootdir: /home/bjorn/github/maslite
-    # collected 2 items                                                                                                                                                              
+    # collected 1 item                                                                                                                                        
 
     # tests/test_multi_processing_advanced.py::test_multiprocessing Registering agent Conveyor 1
     # Registering agent Conveyor 2
@@ -477,79 +468,51 @@ if __name__ == "__main__":
     # Registering agent Conveyor 4
     # 0.0000:Agent(1): LU received
     # 0.0000:Agent(1): set to transfer LU in 0.75 seconds
-    # 0.0000: Starting sub-processes
+    # Starting sub-processes @ 34057.7625
     # 0.0000:Scheduler(1) starting
     # 0.0000:Scheduler(2) starting
-    # 0.0982:All 2 started
-
-    # --- starting intra proc "send" of LU
-
-    # 0.8622:Scheduler(1) sending local 1 -> 2 TransferNotification
-    # 0.8622:Agent(2): got: 1 -> 2 TransferNotification
-    # 0.8622:Agent(2) sending transfer acceptance to 1
-    # 0.8726:Scheduler(1) sending local 2 -> 1 TransferAcceptance
-    # 0.8726:Agent(1): got: 2 -> 1 TransferAcceptance
-    # 0.8726:Agent(1) sending LU to 2
-    # 0.8770:Scheduler(1) sending local 1 -> 2 Transfer
-    # 0.8770:Agent(2): got: 1 -> 2 Transfer
-    # 0.8770:Agent(2): LU received
-
-    # --- completed intra proc "send" of LU
-    #     0.0148 seconds @ 20x speed
-    #     0.0010 seconds @  1x speed.
-    # === timedrift is marginal.
-
-    # 0.8770:Agent(2): set to transfer LU in 2.0 seconds
-
-    # --- starting inter proc "send" of LU
-    # 2.8771:Scheduler1 sending inter proc 2 -> 3 TransferNotification
-    # 3.0506:Scheduler(2) interproc recieved 2 -> 3 TransferNotification
-    # 3.0506:Scheduler(2) sending local 2 -> 3 TransferNotification
-    # 3.0506:Agent(3): got: 2 -> 3 TransferNotification
-    # 3.0506:Agent(3) sending transfer acceptance to 2
-    # 3.0936:Scheduler2 sending inter proc 3 -> 2 TransferAcceptance
-    # 3.2079:Scheduler(1) interproc recieved 3 -> 2 TransferAcceptance
-    # 3.2079:Scheduler(1) sending local 3 -> 2 TransferAcceptance
-    # 3.2079:Agent(2): got: 3 -> 2 TransferAcceptance
-    # 3.2079:Agent(2) sending LU to 3
-    # 3.2354:Scheduler1 sending inter proc 2 -> 3 Transfer
-    # 3.7260:Scheduler(2) interproc recieved 2 -> 3 Transfer
-    # 3.7260:Scheduler(2) sending local 2 -> 3 Transfer
-    # 3.7260:Agent(3): got: 2 -> 3 Transfer
-    # 3.7260:Agent(3): LU received
-
-    # --- completed inter proc "send" of LU in:
-    #     0.0489 seconds @ 20x speed 
-    #     0.0196 seconds @  1x speed.
-    # === time drift is visible.
-
-
-    # 3.7260:Agent(3): set to transfer LU in 2.0 seconds
-
-    # --- starting intra proc "send" of LU
-
-    # 5.7260:Scheduler(2) sending local 3 -> 4 TransferNotification
-    # 5.7260:Agent(4): got: 3 -> 4 TransferNotification
-    # 5.7260:Agent(4) sending transfer acceptance to 3
-    # 5.7390:Scheduler(2) sending local 4 -> 3 TransferAcceptance
-    # 5.7390:Agent(3): got: 4 -> 3 TransferAcceptance
-    # 5.7390:Agent(3) sending LU to 4
-    # 5.7460:Scheduler(2) sending local 3 -> 4 Transfer
-    # 5.7460:Agent(4): got: 3 -> 4 Transfer
-    # 5.7460:Agent(4): LU received
-
-    # --- completed intra proc "send" of LU
-    #     0.0200 seconds @ 20x speed
-    #     0.0005 seconds @  1x speed.
-    # === timedrift is marginal.
-
-    # 5.7460:Agent(4): LU arrived at destination: LogisticUnit:(1): Route: [1, 2, 3, 4]
-    # 5.7896:MPmain received Stop
-    # 5.7917:Stopping sub-processes
-    # 5.7776:Scheduler(1) interproc recieved Stop signal
-    # 5.7776:Scheduler(1) received stop signal Stop signal
-    # 5.7776:Scheduler(2) interproc recieved Stop signal
-    # 5.7776:Scheduler(2) received stop signal Stop signal
-    # 5.9999: All 2 schedulers stopped
-    # PASSED
-    # tests/test_multi_processing_advanced.py::test_time_resolution PASSED
+    # 2 started
+    # 0.7500:Scheduler(1) sending local From -> To : 1 -> 2 Topic: TransferNotification Direct: True
+    # 0.7500:Agent(2): got: From -> To : 1 -> 2 Topic: TransferNotification Direct: True
+    # 0.7500:Agent(2) sending transfer acceptance to 1
+    # 0.7500:Scheduler(1) sending local From -> To : 2 -> 1 Topic: TransferAcceptance Direct: True
+    # 0.7500:Agent(1): got: From -> To : 2 -> 1 Topic: TransferAcceptance Direct: True
+    # 0.7500:Agent(1) sending LU to 2
+    # 0.7500:Scheduler(1) sending local From -> To : 1 -> 2 Topic: Transfer Direct: True
+    # 0.7500:Agent(2): got: From -> To : 1 -> 2 Topic: Transfer Direct: True
+    # 0.7500:Agent(2): LU received
+    # 0.7500:Agent(2): set to transfer LU in 2.0 seconds
+    # 2.7500:Scheduler1 sending inter proc From -> To : 2 -> 3 Topic: TransferNotification Direct: True
+    # 2.7500:Scheduler(2) interproc recieved From -> To : 2 -> 3 Topic: TransferNotification Direct: True
+    # 2.7500:Scheduler(2) sending local From -> To : 2 -> 3 Topic: TransferNotification Direct: True
+    # 2.7500:Agent(3): got: From -> To : 2 -> 3 Topic: TransferNotification Direct: True
+    # 2.7500:Agent(3) sending transfer acceptance to 2
+    # 2.7500:Scheduler2 sending inter proc From -> To : 3 -> 2 Topic: TransferAcceptance Direct: True
+    # 2.7500:Scheduler(1) interproc recieved From -> To : 3 -> 2 Topic: TransferAcceptance Direct: True
+    # 2.7500:Scheduler(1) sending local From -> To : 3 -> 2 Topic: TransferAcceptance Direct: True
+    # 2.7500:Agent(2): got: From -> To : 3 -> 2 Topic: TransferAcceptance Direct: True
+    # 2.7500:Agent(2) sending LU to 3
+    # 2.7500:Scheduler1 sending inter proc From -> To : 2 -> 3 Topic: Transfer Direct: True
+    # 2.7500:Scheduler(2) interproc recieved From -> To : 2 -> 3 Topic: Transfer Direct: True
+    # 2.7500:Scheduler(2) sending local From -> To : 2 -> 3 Topic: Transfer Direct: True
+    # 2.7500:Agent(3): got: From -> To : 2 -> 3 Topic: Transfer Direct: True
+    # 2.7500:Agent(3): LU received
+    # 2.7500:Agent(3): set to transfer LU in 2.0 seconds
+    # 4.7500:Scheduler(2) sending local From -> To : 3 -> 4 Topic: TransferNotification Direct: True
+    # 4.7500:Agent(4): got: From -> To : 3 -> 4 Topic: TransferNotification Direct: True
+    # 4.7500:Agent(4) sending transfer acceptance to 3
+    # 4.7500:Scheduler(2) sending local From -> To : 4 -> 3 Topic: TransferAcceptance Direct: True
+    # 4.7500:Agent(3): got: From -> To : 4 -> 3 Topic: TransferAcceptance Direct: True
+    # 4.7500:Agent(3) sending LU to 4
+    # 4.7500:Scheduler(2) sending local From -> To : 3 -> 4 Topic: Transfer Direct: True
+    # 4.7500:Agent(4): got: From -> To : 3 -> 4 Topic: Transfer Direct: True
+    # 4.7500:Agent(4): LU received
+    # 4.7500:Agent(4): LU arrived at destination: LogisticUnit:(1): Route: [1, 2, 3, 4]
+    # MPmain received Stop
+    # Stopping sub-processes @ 34057.8104 - duration: 0.0479
+    # wall time: 0.047859992999292444 / sim time: 4.75 = 99.25X
+    # 4.7500:Scheduler(1) interproc recieved Stop signal
+    # 4.7500:Scheduler(1) received stop signal Stop signal
+    # 4.7500:Scheduler(2) interproc recieved Stop signal
+    # 4.7500:Scheduler(2) received stop signal Stop signal
+    # 2 schedulers stopped
